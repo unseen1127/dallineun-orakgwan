@@ -51,6 +51,47 @@ object Hangul {
 
     fun normalize(raw: String) = raw.filter { isSyllable(it) || it.isLetterOrDigit() }
 
+    /* ---------- 369 게임 ---------- */
+
+    /** 숫자에 들어 있는 3·6·9의 개수 (박수 횟수) */
+    fun claps(n: Int) = n.toString().count { it == '3' || it == '6' || it == '9' }
+
+    private val digitKo = mapOf('일' to 1, '이' to 2, '삼' to 3, '사' to 4, '오' to 5, '육' to 6, '륙' to 6, '칠' to 7, '팔' to 8, '구' to 9)
+
+    /** "23", "이십삼", "십일" 같은 답을 숫자로. 못 읽으면 null */
+    fun parseNumber(raw: String): Int? {
+        val t = raw.replace(" ", "").trimEnd('!', '.', '?', '요')
+        Regex("\\d+").find(t)?.let { return it.value.toInt() }
+        val s = t.filter { it in digitKo.keys || it == '십' }
+        if (s.isEmpty()) return null
+        val i = s.indexOf('십')
+        if (i < 0) return if (s.length == 1) digitKo[s[0]] else null
+        val tens = if (i == 0) 1 else digitKo[s[i - 1]] ?: return null
+        val ones = if (i == s.lastIndex) 0 else digitKo[s[i + 1]] ?: return null
+        return tens * 10 + ones
+    }
+
+    fun isClap(raw: String) = raw.contains("짝") || raw.contains("박수")
+
+    /* ---------- 객관식 / OX ---------- */
+
+    /** "2번", "이 번", "두 번째", 보기 텍스트 → 보기 인덱스 */
+    fun parseChoice(raw: String, options: List<String>): Int? {
+        val t = raw.replace(" ", "")
+        options.forEachIndexed { i, o -> if (t.contains(o.replace(" ", ""))) return i }
+        val nums = listOf(listOf("1번", "일번", "첫번째", "첫째", "하나"), listOf("2번", "이번", "두번째", "둘째", "둘"), listOf("3번", "삼번", "세번째", "셋째", "셋"))
+        nums.forEachIndexed { i, keys -> if (i < options.size && keys.any { t.contains(it) }) return i }
+        return null
+    }
+
+    /** O / X 답 인식. 음성 인식이 "오"를 숫자 5로 돌려주는 경우도 O로 본다 */
+    fun parseOX(raw: String): Boolean? {
+        val t = raw.replace(" ", "").uppercase()
+        if (listOf("엑스", "X", "틀려", "틀리", "틀렸", "아니", "땡", "가위").any { t.contains(it) }) return false
+        if (listOf("오", "O", "5", "맞아", "맞다", "맞습", "동그라미", "응").any { t.contains(it) }) return true
+        return null
+    }
+
     fun parseCount(raw: String): Int? {
         val t = raw.replace(" ", "")
         Regex("[2-6]").find(t)?.let { return it.value.toInt() }
