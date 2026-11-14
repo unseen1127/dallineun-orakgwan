@@ -12,7 +12,7 @@ enum class GameType(val title: String, val desc: String) {
     WORD_CHAIN("끝말잇기", "MC가 순서·시간·판정, 중간에 새 규칙"),
     CHOSUNG("초성 퀴즈", "초성과 힌트를 듣고 정답 맞히기"),
     REGION("지나는 동네 퀴즈", "지나는 지역 문제를 객관식·OX로"),
-    SOLO("혼자 드라이브", "혼자 운전할 때, MC와 1:1 끝말잇기·퀴즈 대결"),
+    SOLO("혼자 드라이브", "혼자 운전할 때, MC와 스무고개·아재개그 퀴즈"),
 }
 
 data class Player(val name: String, val isDriver: Boolean, var score: Int = 0)
@@ -32,6 +32,7 @@ data class UiState(
     val listening: Boolean = false,
     val round: String = "",
     val options: List<String> = emptyList(),
+    val okIdx: Int? = null,
 ) { enum class Screen { HOME, GAME, RESULT } }
 
 /**
@@ -260,58 +261,87 @@ class MC(
     private suspend fun solo(me: Player) {
         val mcSide = Player("MC", isDriver = false)
         val both = listOf(me, mcSide)
-        set { it.copy(players = both, current = -1, rule = "1:1 대결", board = "", boardLabel = "", round = "") }
-        say("혼자 드라이브 모드! 오늘은 제가 상대예요. 먼저 끝말잇기 한판!")
-        // 1) MC와 1:1 끝말잇기
-        val used = mutableSetOf<String>()
-        var word = if (demo) "자동차" else Content.mcWords.random()
-        used += word
-        set { it.copy(board = word, boardLabel = "MC가 낸 단어", round = "끝말잇기") }
-        say("제가 먼저 할게요. $word!")
-        var driverWin = false
-        var turns = 0
+        set { it.copy(players = both, current = -1, rule = "1:1 대결", board = "?", boardLabel = "MC가 생각한 것", round = "스무고개") }
+        say("혼자 드라이브 모드! 오늘은 제가 문제를 낼게요. 스무고개!")
+        var round = 0
         while (true) {
-            val starts = Hangul.allowedStarts(word.last())
-            val startTxt = starts.joinToString(" 또는 ") { "'$it'" } + Hangul.ro(starts.last())
-            set { it.copy(current = 0) }
-            say("${me.name} 님, $startTxt 시작!")
-            val heard = hear(me, turnSeconds(me, 8))
-            if (isStop(heard)) { say("게임을 마칠게요."); return }
-            val w = heard?.let { Hangul.extractWord(it) }.orEmpty()
-            val ok = w.length >= 2 && w.first() in starts && w !in used
-            if (!ok) { say(if (w.isEmpty()) "시간 초과! 이번 판은 제가 이겼네요." else "아쉬워요! 이번 판은 제가 이겼네요."); break }
-            me.score += 1; used += w; word = w; turns++
-            set { it.copy(board = w, boardLabel = "${me.name} 님 단어", players = both) }
-            // MC 차례: 단어장에서 이어지는 단어를 고른다
-            set { it.copy(current = 1) }
-            val next = Content.mcWords.filter { it.first() in Hangul.allowedStarts(w.last()) && it !in used }
-                .let { if (demo) it.firstOrNull() else it.randomOrNull() }
-            if (next == null) {
-                driverWin = true
-                say("음... '${w.last()}'${Hangul.ro(w.last())} 시작하는 단어가 생각이 안 나요. 제가 졌어요! ${me.name} 님 승리!")
-                break
+            twentyRound(me, mcSide, both, round++)
+            // 한 판 더? 다른 게임?
+            set { it.copy(current = 0, options = emptyList()) }
+            say("한 판 더 할까요, 아니면 다른 게임을 해 볼까요?")
+            val ans = hear(me, turnSeconds(me, 8)).orEmpty().replace(" ", "")
+            if (isStop(ans)) { say("오늘은 여기까지! 안전 운전하세요."); return }
+            if (listOf("한판", "또", "다시", "한번더").any { ans.contains(it) } && !ans.contains("다른")) continue
+            break
+        }
+        // 다른 게임 안내: 화면에 목록을 보여 주고 음성으로 읽어 준다
+        val menu = listOf("초성 퀴즈", "지나는 동네 퀴즈", "아재개그 퀴즈")
+        set { it.copy(board = "", boardLabel = "혼자서 할 수 있는 게임", round = "다른 게임", options = menu, current = 0) }
+        say("혼자서도 할 수 있는 게임은 1번 초성 퀴즈, 2번 지나는 동네 퀴즈, 3번 아재개그 퀴즈가 있어요. 뭘로 할까요?")
+        val pick = hear(me, turnSeconds(me, 8)).orEmpty()
+        val idx = Hangul.parseChoice(pick, menu) ?: when {
+            pick.contains("아재") || pick.contains("개그") -> 2
+            pick.contains("초성") -> 0
+            pick.contains("동네") || pick.contains("지역") -> 1
+            else -> 2
+        }
+        set { it.copy(okIdx = idx) }
+        say("좋아요! ${menu[idx]} 시작합니다!")
+        set { it.copy(okIdx = null, options = emptyList()) }
+        when (idx) {
+            0 -> chosung(mutableListOf(me))
+            1 -> region(mutableListOf(me))
+            else -> ajae(me)
+        }
+        set { it.copy(screen = UiState.Screen.RESULT, current = -1, board = "${me.score}점", boardLabel = "오늘의 기록", options = emptyList(), round = "") }
+        say("오늘 기록 ${me.score}점! 졸리면 다음 휴게소에서 꼭 쉬어 가세요.")
+    }
+
+    /** 스무고개 한 판: MC가 정답을 정하고 운전자가 예/아니요 질문으로 맞힌다 */
+    private suspend fun twentyRound(me: Player, mcSide: Player, both: List<Player>, round: Int) {
+        val item = if (demo) Content.twenty[round % Content.twenty.size] else Content.twenty.random()
+        set { it.copy(round = "스무고개", board = "?", boardLabel = "MC가 생각한 것", options = emptyList()) }
+        say(if (round == 0) "제가 생각한 것을 예, 아니요로 답할 수 있는 질문으로 맞혀 보세요. 정답을 알면 이름을 말하면 돼요. 시작!" else "새 문제! 생각했어요. 질문하세요!")
+        var asked = 0
+        var hintIdx = 0
+        while (asked < 20) {
+            set { it.copy(current = 0, board = "?", boardLabel = "질문 ${asked + 1} / 20") }
+            val heard = hear(me, turnSeconds(me, 10))
+            if (isStop(heard)) return
+            if (heard == null) { say("질문해 주세요! 예를 들면, 동물이야?"); continue }
+            val q = heard.replace(" ", "")
+            val guessed = Content.twenty.firstOrNull { t -> t.aliases.any { q.contains(it) } }
+            asked++
+            if (guessed != null) {
+                if (guessed.name == item.name) {
+                    me.score += maxOf(1, 21 - asked)
+                    set { it.copy(board = item.name, boardLabel = "정답", players = both) }
+                    say("정답! ${item.name}! ${Hangul.sino(asked)} 번 만에 맞히셨어요!")
+                    return
+                } else { say("아니요, ${guessed.name}은 아니에요!"); continue }
             }
-            used += next; word = next; mcSide.score += 1
-            set { it.copy(board = next, boardLabel = "MC가 낸 단어", players = both) }
-            say("$next!")
-            if (finalRoundNeeded()) { say("곧 도착이라 여기까지!"); return }
+            if (q.contains("힌트")) { say("힌트! ${item.hints.getOrNull(hintIdx++) ?: "힌트를 다 드렸어요"}."); continue }
+            val key = Content.twentyKeys.firstOrNull { it.first.containsMatchIn(q) }?.second
+            if (key == null) { asked--; say("음, 예 아니요로 답하기 어려운 질문이에요. 다른 질문!"); continue }
+            val yes = key in item.facts
+            say(if (yes) listOf("네!", "네, 맞아요!", "딩동! 네!")[asked % 3] else listOf("아니요!", "아니에요!", "땡, 아니요!")[asked % 3])
+            if (asked == 10) say("벌써 질문 열 개! 힌트 하나 드릴게요. ${item.hints.first()}.")
+            if (finalRoundNeeded()) { say("곧 도착이라 정답 공개! ${item.name}였어요."); return }
         }
-        // 2) 지나는 동네 퀴즈 연속 도전
-        car.refreshLocation(); delay(600)
-        val st = car.state
-        val reg = Content.findRegion(st.address, st.lat, st.lng)
-        val qs = ((reg?.qs ?: emptyList()) + (if (demo) Content.nationwide else Content.nationwide.shuffled())).take(2)
-        set { it.copy(current = 0, round = "퀴즈 연속 도전", board = "", boardLabel = "") }
-        say("이번엔 ${reg?.let { "지금 지나는 ${it.name}" } ?: "전국"} 퀴즈, 연속 정답 도전!")
-        var streak = 0
-        for (q in qs) {
-            val ok = askQuiz(me, q, reg?.name)
-            if (!ok) break
-            streak++
-            say("$streak 연속!")
+        mcSide.score += 1
+        say("스무 고개 끝! 정답은 ${item.name}였어요.")
+    }
+
+    /** 아재개그 퀴즈 */
+    private suspend fun ajae(me: Player) {
+        val list = (if (demo) Content.ajae else Content.ajae.shuffled()).take(3)
+        for ((i, q) in list.withIndex()) {
+            set { it.copy(game = it.game, round = "아재개그 퀴즈", board = q.q, boardLabel = "${i + 1} / ${list.size} 문제", current = 0) }
+            say(if (i == 0) "첫 문제! ${q.q}" else "다음 문제! ${q.q}")
+            val a = hear(me, turnSeconds(me, 10))
+            if (isStop(a)) return
+            if (correct(a, q.answers)) { me.score += 2; say("딩동댕! ${q.reveal}") } else say("땡! ${q.reveal}")
         }
-        set { it.copy(screen = UiState.Screen.RESULT, current = -1, board = if (driverWin) "승리" else "${streak}연속", boardLabel = "오늘의 기록", options = emptyList(), round = "") }
-        say("오늘 기록, 끝말잇기 ${if (driverWin) "승리" else "${turns}번 이어가기"}에 퀴즈 ${streak}연속! 졸리면 다음 휴게소에서 꼭 쉬어 가세요.")
     }
 
     /* ---------------- 지나는 동네 퀴즈 (객관식 · OX) ---------------- */

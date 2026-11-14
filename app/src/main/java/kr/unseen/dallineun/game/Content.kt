@@ -17,6 +17,65 @@ object Content {
         "타조 탁자 태극기 토끼 통조림 튤립 파도 파랑새 팽이 편지 포도 표정 풍선 피아노 하늘 학교 한강 해바라기 햄버거 호랑이 호박 화분 휴게소")
         .split(" ")
 
+    /* ---------- 아재개그 퀴즈 ---------- */
+    data class Ajae(val q: String, val answers: List<String>, val reveal: String)
+
+    val ajae = listOf(
+        Ajae("자동차를 톡 치면?", listOf("카톡"), "정답은 카톡! 카를 톡!"),
+        Ajae("소가 웃으면?", listOf("우하하"), "정답은 우하하!"),
+        Ajae("왕이 넘어지면?", listOf("킹콩"), "정답은 킹콩!"),
+        Ajae("오리가 얼면?", listOf("언덕"), "정답은 언덕! 언 덕(duck)!"),
+        Ajae("깨가 죽으면?", listOf("주근깨"), "정답은 주근깨!"),
+        Ajae("세상에서 가장 뜨거운 과일은?", listOf("천도복숭아", "천도"), "정답은 천도복숭아!"),
+        Ajae("바나나가 웃으면?", listOf("바나나킥", "킥"), "정답은 바나나킥!"),
+    )
+
+    /* ---------- 스무고개 (혼자 드라이브) ---------- */
+
+    /** facts: 예/아니요로 답할 속성. 서비스 단계에서 LLM 응답으로 확장 */
+    data class Twenty(val name: String, val aliases: List<String>, val facts: Set<String>, val hints: List<String>)
+
+    private fun tw(name: String, facts: String, vararg hints: String, aliases: List<String> = emptyList()) =
+        Twenty(name, aliases + name, facts.split(" ").filter { it.isNotBlank() }.toSet(), hints.toList())
+
+    val twenty = listOf(
+        tw("기린", "동물 살아 다리 다리4 크다 목길다 털 노랑 아프리카", "목이 아주 길어요", "아프리카 초원에 살아요"),
+        tw("고래", "동물 살아 크다 물 바다 헤엄", "바다에서 가장 큰 동물 중 하나예요", "물을 뿜어요"),
+        tw("수박", "식물 음식 먹 과일 초록 빨강 여름 크다", "여름 과일이에요", "겉은 초록, 속은 빨강"),
+        tw("자전거", "물건 탈것 바퀴 다리힘", "두 바퀴로 달려요", "페달을 밟아요"),
+        tw("냉장고", "물건 집 전기 크다 차갑다", "부엌에 있어요", "안이 차가워요"),
+        tw("펭귄", "동물 살아 다리 날개 물 바다 헤엄 흑백 남극", "날개가 있지만 날지 못해요", "남극에 살아요"),
+        tw("우산", "물건 손 비", "비 오는 날 필요해요", "펼쳐서 써요"),
+        tw("버스", "물건 탈것 바퀴 크다 전기", "여러 사람이 함께 타요", "정류장에 서요"),
+        tw("호랑이", "동물 살아 다리 다리4 털 크다 노랑", "줄무늬가 있어요", "산의 왕이라고 불려요"),
+        tw("딸기", "식물 음식 먹 과일 빨강 작다", "빨갛고 씨가 겉에 있어요", "케이크 위에 자주 올라가요"),
+    )
+
+    /** 질문 키워드 -> 속성. 앞쪽이 우선 */
+    val twentyKeys: List<Pair<Regex, String>> = listOf(
+        Regex("바다|물에|물속|헤엄") to "물",
+        Regex("동물") to "동물",
+        Regex("식물|나무|풀") to "식물",
+        Regex("과일") to "과일",
+        Regex("음식|먹") to "먹",
+        Regex("탈것|타는|탈 수|탈수") to "탈것",
+        Regex("살아|생물|숨") to "살아",
+        Regex("날개|날아|날 수") to "날개",
+        Regex("다리.*(네|4)") to "다리4",
+        Regex("다리") to "다리",
+        Regex("목") to "목길다",
+        Regex("털") to "털",
+        Regex("바퀴") to "바퀴",
+        Regex("전기|배터리|충전") to "전기",
+        Regex("집|부엌|방에") to "집",
+        Regex("작아|작은|작니|작나") to "작다",
+        Regex("커|크|큰") to "크다",
+        Regex("빨간|빨강") to "빨강",
+        Regex("노란|노랑") to "노랑",
+        Regex("초록|녹색") to "초록",
+        Regex("물건|사물") to "물건",
+    )
+
     data class Chosung(val answer: String, val category: String, val hint: String)
 
     val chosungQuiz = listOf(
