@@ -51,6 +51,13 @@ class HangulTest {
         assertFalse(kr.unseen.dallineun.voice.ClapDetector.isClap(listOf(1.0, 1.2, 0.9, 1.1, 1.3, 1.0)))
         assertFalse(kr.unseen.dallineun.voice.ClapDetector.isClap(listOf(1.0, 9.0, 9.2, 9.5, 9.1, 9.3, 8.9, 1.0))) // 길게 말한 소리는 박수 아님
     }
+    @Test fun soloWords() {
+        // 시연 대본: 자동차 -> (차표) -> 표정 -> (정류장) -> 장갑 -> (갑옷) -> '옷' 단어 없음
+        assertEquals("표정", Content.mcWords.first { it.first() in Hangul.allowedStarts('표') })
+        assertEquals("장갑", Content.mcWords.first { it.first() in Hangul.allowedStarts('장') })
+        assertTrue(Content.mcWords.none { it.first() in Hangul.allowedStarts('옷') })
+        assertEquals(Content.mcWords.size, Content.mcWords.toSet().size)
+    }
     @Test fun region() {
         assertEquals("천안", Content.findRegion("충청남도 천안시 동남구", null, null)?.name)
         assertTrue(Content.regions.all { r -> r.qs.all { q -> q !is Content.Quiz.Choice || q.options.size == 3 } })
