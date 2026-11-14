@@ -2,6 +2,8 @@ package kr.unseen.dallineun.game
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -12,7 +14,15 @@ enum class GameType(val title: String, val desc: String) {
     WORD_CHAIN("끝말잇기", "MC가 순서·시간·판정, 중간에 새 규칙"),
     CHOSUNG("초성 퀴즈", "초성과 힌트를 듣고 정답 맞히기"),
     REGION("지나는 동네 퀴즈", "지나는 지역 문제를 객관식·OX로"),
-    SOLO("혼자 드라이브", "혼자 운전할 때, MC와 스무고개·아재개그 퀴즈"),
+    TWENTY("스무고개", "MC가 생각한 것을 예·아니요 질문으로 맞히기"),
+    AJAE("아재개그 퀴즈", "MC가 내는 아재개그 맞히기");
+
+    companion object {
+        /** 2명 이상이 함께 하는 게임 */
+        val family = listOf(WORD_CHAIN, CHOSUNG, REGION)
+        /** 혼자 운전할 때 MC와 하는 게임 */
+        val solo = listOf(TWENTY, CHOSUNG, REGION, AJAE)
+    }
 }
 
 data class Player(val name: String, val isDriver: Boolean, var score: Int = 0)
@@ -33,6 +43,8 @@ data class UiState(
     val round: String = "",
     val options: List<String> = emptyList(),
     val okIdx: Int? = null,
+    /** 화면 위쪽 제목 (게임 중에는 게임 이름, 고르는 중에는 단계 이름) */
+    val title: String = "",
 ) { enum class Screen { HOME, GAME, RESULT } }
 
 /**
@@ -61,22 +73,135 @@ class MC(
         set { UiState() }
     }
 
-    fun start(game: GameType, demoPlayers: List<String>? = null) {
+    /** 앱을 켜면 바로 시작: 인원을 먼저 묻고, 인원에 맞는 게임을 안내한다 */
+    fun startSession(demoNames: List<String>? = null) {
         job?.cancel()
         job = scope.launch {
             car.requestAudioFocus()
-            set { UiState(screen = UiState.Screen.GAME, game = game) }
-            val players = if (game == GameType.SOLO) mutableListOf(Player(demoPlayers?.firstOrNull() ?: "드라이버", isDriver = true))
-                          else setupPlayers(game, demoPlayers)
+            set { UiState(screen = UiState.Screen.GAME, title = "달리는 오락관") }
+            say("반가워요! 달리는 오락관 MC입니다.")
+            remainMin()?.let { m ->
+                if (m > 0) say("목적지까지 약 ${if (m >= 60) "${m / 60}시간 ${m % 60}분" else "${m}분"} 남았네요.")
+            }
+            val n = askCount()
+            if (n == 1) soloSession(demoNames?.firstOrNull() ?: "드라이버") else familySession(n, demoNames)
+            car.abandonAudioFocus()
+        }
+    }
+
+    /** 화면 보기를 손으로 눌렀을 때 (정차 중 보조 입력) */
+    @Volatile private var touchAnswer: String? = null
+    fun touch(text: String) { touchAnswer = text }
+
+    private enum class Next { AGAIN, OTHER, STOP }
+
+    private suspend fun askCount(): Int {
+        val opts = listOf("1명 (혼자)", "2명", "3명", "4명", "5명")
+        var count: Int? = null
+        repeat(2) { attempt ->
+            if (count != null) return@repeat
+            set { it.copy(screen = UiState.Screen.GAME, title = "달리는 오락관", boardLabel = "인원 확인", board = "", options = opts,
+                okIdx = null, players = emptyList(), current = -1, rule = "", round = "") }
+            say(if (attempt == 0) "몇 명이 게임하나요? 혼자시면 혼자라고 말해 주세요." else "다시 한번, 몇 명이 게임하나요?")
+            count = hear(null, 7)?.let { Hangul.parseCount(it) }
+        }
+        val n = (count ?: 2).coerceIn(1, 6)
+        set { it.copy(okIdx = (n - 1).takeIf { i -> i in 0..4 }) }
+        return n
+    }
+
+    private fun keywords(g: GameType) = when (g) {
+        GameType.WORD_CHAIN -> listOf("끝말")
+        GameType.CHOSUNG -> listOf("초성")
+        GameType.REGION -> listOf("동네", "지역")
+        GameType.TWENTY -> listOf("스무", "고개")
+        GameType.AJAE -> listOf("아재", "개그")
+    }
+
+    /** 게임 목록을 화면에 보여 주고 음성으로 읽어 준 뒤 선택을 받는다. 그만하면 null */
+    private suspend fun pickGame(menu: List<GameType>, intro: String): GameType? {
+        set { it.copy(screen = UiState.Screen.GAME, game = null, title = "달리는 오락관", boardLabel = "게임 고르기", board = "",
+            options = menu.map { g -> g.title }, okIdx = null, current = -1, rule = "", round = "") }
+        say("$intro ${menu.mapIndexed { i, g -> "${i + 1}번 ${g.title}" }.joinToString(", ")}. 뭘로 할까요?")
+        repeat(2) { attempt ->
+            val a = hear(null, 8)
+            if (isStop(a)) return null
+            val idx = a?.let { ans ->
+                Hangul.parseChoice(ans, menu.map { g -> g.title })
+                    ?: menu.indexOfFirst { g -> keywords(g).any { k -> ans.contains(k) } }.takeIf { it >= 0 }
+            }
+            if (idx != null) {
+                set { it.copy(okIdx = idx) }
+                say("좋아요! ${menu[idx].title} 시작합니다!")
+                set { it.copy(okIdx = null, options = emptyList()) }
+                return menu[idx]
+            }
+            if (attempt == 0) say("잘 못 들었어요. 번호나 게임 이름으로 말해 주세요.")
+        }
+        val g = menu.first()
+        say("그럼 ${g.title}부터 해 볼게요!")
+        set { it.copy(okIdx = null, options = emptyList()) }
+        return g
+    }
+
+    /** 게임이 끝나면: 한 판 더 / 다른 게임 / 그만 */
+    private suspend fun askNext(): Next {
+        say("한 판 더 할까요, 아니면 다른 게임을 해 볼까요?")
+        val a = hear(null, 8).orEmpty().replace(" ", "")
+        return when {
+            a.isBlank() || isStop(a) || a.contains("안할") -> Next.STOP
+            listOf("한판", "또", "다시", "한번더").any { a.contains(it) } && !a.contains("다른") -> Next.AGAIN
+            else -> Next.OTHER
+        }
+    }
+
+    /** 2명 이상: 함께 하는 게임 */
+    private suspend fun familySession(n: Int, demoNames: List<String>?) {
+        var game = pickGame(GameType.family, "${n}명이군요! 함께 할 수 있는 게임은") ?: return endFamily()
+        val players = registerPlayers(n, demoNames)
+        while (true) {
+            players.forEach { it.score = 0 }
+            set { it.copy(screen = UiState.Screen.GAME, game = game, title = game.title, options = emptyList()) }
             when (game) {
                 GameType.WORD_CHAIN -> wordChain(players)
                 GameType.CHOSUNG -> chosung(players)
-                GameType.SOLO -> { solo(players[0]); car.abandonAudioFocus(); return@launch }
-                GameType.REGION -> region(players)
+                else -> region(players)
             }
             awards(players)
-            car.abandonAudioFocus()
+            game = when (askNext()) {
+                Next.AGAIN -> game
+                Next.OTHER -> pickGame(GameType.family, "함께 할 수 있는 게임은") ?: break
+                Next.STOP -> break
+            }
         }
+        endFamily()
+    }
+
+    private suspend fun endFamily() = say("오늘 게임은 여기까지! 즐거운 여행 되세요. 안전 운전하세요!")
+
+    /** 1명: 혼자 운전하는 운전자와 MC가 함께 하는 게임 */
+    private suspend fun soloSession(name: String) {
+        val me = Player(name, isDriver = true)
+        val mcSide = Player("MC", isDriver = false)
+        var game = pickGame(GameType.solo, "혼자서 운전하시는군요! 지루하지 않으시도록 저랑 같이 게임을 해 봐요. 혼자서 할 수 있는 게임은")
+            ?: run { say("다음에 같이 해요. 안전 운전하세요!"); return }
+        var round = 0
+        while (true) {
+            set { it.copy(screen = UiState.Screen.GAME, game = game, title = game.title, players = listOf(me, mcSide), options = emptyList()) }
+            when (game) {
+                GameType.TWENTY -> twentyRound(me, mcSide, listOf(me, mcSide), round++)
+                GameType.CHOSUNG -> chosung(mutableListOf(me))
+                GameType.REGION -> region(mutableListOf(me))
+                else -> ajae(me)
+            }
+            game = when (askNext()) {
+                Next.AGAIN -> game
+                Next.OTHER -> pickGame(GameType.solo, "혼자서 할 수 있는 게임은") ?: break
+                Next.STOP -> break
+            }
+        }
+        set { it.copy(screen = UiState.Screen.RESULT, title = "달리는 오락관", current = -1, board = "${me.score}점", boardLabel = "오늘의 기록", options = emptyList(), round = "", rule = "") }
+        say("오늘 기록 ${me.score}점! 졸리면 다음 휴게소에서 꼭 쉬어 가세요.")
     }
 
     /* ---------------- 공통 ---------------- */
@@ -114,7 +239,12 @@ class MC(
                 delay(100)
             }
         }
-        val r = voice.listen(seconds * 1000L)
+        val r = coroutineScope {
+            val listening = async { voice.listen(seconds * 1000L) }
+            while (listening.isActive && touchAnswer == null) delay(80)
+            val t = touchAnswer
+            if (t != null) { touchAnswer = null; listening.cancel(); voice.stopAll(); t } else listening.await()
+        }
         ticker.cancel()
         val who = player?.name ?: "탑승자"
         set { it.copy(listening = false, heard = when { r != null -> "$who: $r"; voice.clapDetected -> "$who: 짝! (박수)"; else -> "$who: (시간 초과)" }) }
@@ -125,19 +255,8 @@ class MC(
 
     private fun remainMin() = car.state.remainSec?.let { it / 60 }
 
-    private suspend fun setupPlayers(game: GameType, demoNames: List<String>?): MutableList<Player> {
-        say("반가워요! 달리는 오락관 MC입니다. 오늘의 게임은 ${game.title}!")
-        remainMin()?.let { m ->
-            if (m > 0) say("목적지까지 약 ${if (m >= 60) "${m / 60}시간 ${m % 60}분" else "${m}분"} 남았네요. 도착 전에 시상식까지 해 볼게요.")
-        }
-        var count: Int? = null
-        repeat(2) {
-            if (count != null) return@repeat
-            say("몇 명이 참여하나요?")
-            count = hear(null, 6)?.let { Hangul.parseCount(it) }
-        }
-        val n = (count ?: 2).coerceIn(2, 6)
-        say("${n}명! 운전하시는 분부터 이름을 말해 주세요.")
+    private suspend fun registerPlayers(n: Int, demoNames: List<String>?): MutableList<Player> {
+        say("운전하시는 분부터 한 분씩 이름을 말해 주세요.")
         val players = mutableListOf<Player>()
         for (i in 0 until n) {
             val label = if (i == 0) "운전자" else "${i + 1}번째"
@@ -272,45 +391,6 @@ class MC(
 
     /* ---------------- 혼자 드라이브: MC가 상대 ---------------- */
 
-    private suspend fun solo(me: Player) {
-        val mcSide = Player("MC", isDriver = false)
-        val both = listOf(me, mcSide)
-        set { it.copy(players = both, current = -1, rule = "1:1 대결", board = "?", boardLabel = "MC가 생각한 것", round = "스무고개") }
-        say("혼자 드라이브 모드! 오늘은 제가 문제를 낼게요. 스무고개!")
-        var round = 0
-        while (true) {
-            twentyRound(me, mcSide, both, round++)
-            // 한 판 더? 다른 게임?
-            set { it.copy(current = 0, options = emptyList()) }
-            say("한 판 더 할까요, 아니면 다른 게임을 해 볼까요?")
-            val ans = hear(me, turnSeconds(me, 8)).orEmpty().replace(" ", "")
-            if (isStop(ans)) { say("오늘은 여기까지! 안전 운전하세요."); return }
-            if (listOf("한판", "또", "다시", "한번더").any { ans.contains(it) } && !ans.contains("다른")) continue
-            break
-        }
-        // 다른 게임 안내: 화면에 목록을 보여 주고 음성으로 읽어 준다
-        val menu = listOf("초성 퀴즈", "지나는 동네 퀴즈", "아재개그 퀴즈")
-        set { it.copy(board = "", boardLabel = "혼자서 할 수 있는 게임", round = "다른 게임", options = menu, current = 0) }
-        say("혼자서도 할 수 있는 게임은 1번 초성 퀴즈, 2번 지나는 동네 퀴즈, 3번 아재개그 퀴즈가 있어요. 뭘로 할까요?")
-        val pick = hear(me, turnSeconds(me, 8)).orEmpty()
-        val idx = Hangul.parseChoice(pick, menu) ?: when {
-            pick.contains("아재") || pick.contains("개그") -> 2
-            pick.contains("초성") -> 0
-            pick.contains("동네") || pick.contains("지역") -> 1
-            else -> 2
-        }
-        set { it.copy(okIdx = idx) }
-        say("좋아요! ${menu[idx]} 시작합니다!")
-        set { it.copy(okIdx = null, options = emptyList()) }
-        when (idx) {
-            0 -> chosung(mutableListOf(me))
-            1 -> region(mutableListOf(me))
-            else -> ajae(me)
-        }
-        set { it.copy(screen = UiState.Screen.RESULT, current = -1, board = "${me.score}점", boardLabel = "오늘의 기록", options = emptyList(), round = "") }
-        say("오늘 기록 ${me.score}점! 졸리면 다음 휴게소에서 꼭 쉬어 가세요.")
-    }
-
     /** 스무고개 한 판: MC가 정답을 정하고 운전자가 예/아니요 질문으로 맞힌다 */
     private suspend fun twentyRound(me: Player, mcSide: Player, both: List<Player>, round: Int) {
         val item = if (demo) Content.twenty[round % Content.twenty.size] else Content.twenty.random()
@@ -423,6 +503,5 @@ class MC(
         val ties = sorted.filter { it.score == top.score }
         if (ties.size > 1) say("시상식! 공동 우승은 ${ties.joinToString(", ") { it.name }}, ${top.score}점!")
         else say("시상식! 오늘의 우승은 ${top.name} 님, ${top.score}점! 축하합니다!")
-        say("다른 게임을 하려면 화면이나 음성으로 불러 주세요. 안전 운전하세요!")
     }
 }

@@ -35,7 +35,7 @@ object Hangul {
         .replace(Regex("(?<![A-Za-z])O(?![A-Za-z])"), "오")
         .replace(Regex("(?<![A-Za-z])X(?![A-Za-z])"), "엑스")
         .replace(Regex("(?<!\\d)([1-4])글자")) { listOf("", "한", "두", "세", "네")[it.groupValues[1].toInt()] + " 글자" }
-        .replace(Regex("(?<!\\d)([1-3])번")) { sinoDigit[it.groupValues[1].toInt()] + " 번" }
+        .replace(Regex("(?<!\\d)([1-9])번")) { sinoDigit[it.groupValues[1].toInt()] + " 번" }
         .replace(Regex("(?<!\\d)([1-9])명")) { native(it.groupValues[1].toInt()) + " 명" }
 
     /** '로/으로' 조사: 받침 없거나 ㄹ받침이면 '로' */
@@ -121,7 +121,8 @@ object Hangul {
 
     fun parseCount(raw: String): Int? {
         val t = raw.replace(" ", "")
-        Regex("[2-6]").find(t)?.let { return it.value.toInt() }
+        if (listOf("혼자", "한명", "한사람", "나만", "저만", "1명").any { t.contains(it) }) return 1
+        Regex("[1-6]").find(t)?.let { return it.value.toInt() }
         val words = listOf("다섯" to 5, "여섯" to 6, "넷" to 4, "네명" to 4, "네사람" to 4, "셋" to 3, "세명" to 3,
             "세사람" to 3, "둘" to 2, "두명" to 2, "두사람" to 2, "네" to 4, "세" to 3, "두" to 2)
         return words.firstOrNull { t.contains(it.first) }?.second
