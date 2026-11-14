@@ -81,10 +81,12 @@ class MainActivity : Activity() {
             realVoice = PleosVoice.create(this@MainActivity) ?: AndroidVoice.create(this@MainActivity, allowStt = !automotive)
             mc.voice = realVoice!!
             render(last)
-            // 검증·시연용: adb shell am start ... --ez demo true --es game WORD_CHAIN
-            intent?.getStringExtra("game")?.let { g ->
-                runCatching { GameType.valueOf(g) }.getOrNull()?.let { delay(1500); startGame(it) }
-            }
+            // 앱을 켜면 바로 MC가 인원부터 묻는다.
+            // 검증·시연용: adb shell am start ... --ez demo true --es scenario family|solo (또는 --es game WORD_CHAIN|CHOSUNG|REGION)
+            delay(1200)
+            val g = intent?.getStringExtra("game")
+            val sc = intent?.getStringExtra("scenario") ?: when (g) { null -> null; "SOLO", "TWENTY", "AJAE" -> "solo"; else -> "family" }
+            if (demoMode || sc != null) startDemo(sc ?: "family", g) else startSession()
         }
         // 데모 시뮬레이션 중 남은 시간 흐르게
         scope.launch { while (isActive) { delay(1000); car.simulateTick(1) } }
@@ -110,21 +112,24 @@ class MainActivity : Activity() {
 
     /* ---------------- 게임 시작 ---------------- */
 
-    private fun startGame(type: GameType) {
+    private fun startSession() {
         val v = realVoice ?: return
-        if (demoMode) {
-            val demo = DemoVoice(v) { }
-            demo.load(DemoScripts.forGame(type))
-            mc.voice = demo; mc.demo = true
-            if (type == GameType.SOLO) car.simulate(driving = true, remainSec = 95 * 60, destination = "부산 해운대",
-                address = "대전광역시 유성구", lat = 36.36, lng = 127.36)
-            else car.simulate(driving = true, remainSec = 80 * 60, destination = "광주 무등산",
-                address = "충청남도 천안시 동남구", lat = 36.80, lng = 127.15)
-            mc.start(type, DemoScripts.players(type))
-        } else {
-            mc.voice = v; mc.demo = false
-            mc.start(type)
-        }
+        mc.voice = v; mc.demo = false
+        mc.startSession()
+    }
+
+    /** 시연 모드: 대본으로 탑승자 답변을 자동 입력 (scenario: family / solo) */
+    private fun startDemo(scenario: String, game: String? = null) {
+        val v = realVoice ?: return
+        demoMode = true
+        val demo = DemoVoice(v) { }
+        val solo = scenario == "solo"
+        val g = if (solo) null else runCatching { GameType.valueOf(game ?: "WORD_CHAIN") }.getOrDefault(GameType.WORD_CHAIN)
+        demo.load(if (solo) DemoScripts.solo else DemoScripts.family(g!!))
+        mc.voice = demo; mc.demo = true
+        if (solo) car.simulate(driving = true, remainSec = 95 * 60, destination = "부산 해운대", address = "대전광역시 유성구", lat = 36.36, lng = 127.36)
+        else car.simulate(driving = true, remainSec = 80 * 60, destination = "광주 무등산", address = "충청남도 천안시 동남구", lat = 36.80, lng = 127.15)
+        mc.startSession(if (solo) listOf("아빠") else DemoScripts.players(g!!))
     }
 
     /* ---------------- 렌더링 ---------------- */
@@ -188,27 +193,22 @@ class MainActivity : Activity() {
 
     private fun home(): View {
         val box = col()
-        box.addView(text("어떤 게임을 할까요?", 26f, textMid, false, 1))
-        val cards = if (landscape) row() else col()
-        GameType.values().forEachIndexed { i, g ->
-            val card = col().apply {
-                background = round(surface, 24f)
-                val cp = if (compact) 18f else 28f
-                setPadding(dp(cp), dp(cp), dp(cp), dp(cp))
-                if (!landscape) minimumHeight = dp(if (compact) 104f else 150f)
-                isClickable = true
-                setOnClickListener { startGame(g) }
-                contentDescription = g.title
-            }
-            card.addView(text("0${i + 1}", 20f, accent, true, 1))
-            card.addView(text(g.title, 30f, textHi, true, 2), lp(top = 14))
-            card.addView(text(g.desc, 20f, textMid, false, 2), lp(top = 10))
-            val last = GameType.values().size - 1
-            val l = if (landscape) lp(w = 0, h = -1, weight = 1f, end = if (i < last) 16 else 0) else lp(top = if (i > 0) 12 else 0)
-            cards.addView(card, l)
+        box.addView(text("화면을 보지 않고 목소리로 함께 노는 차 안의 오락관", 24f, textMid, false, 2))
+        box.addView(text("시작하면 MC가 먼저 몇 명이 게임하는지 물어봐요.\n2명 이상이면 함께 하는 게임을, 혼자면 MC와 하는 게임을 안내해요.", 20f, textMid, false, 3), lp(top = 10))
+        val start = text("시작하기", 34f, bg, true, 1).apply {
+            gravity = Gravity.CENTER; background = round(accent, 28f); minHeight = dp(if (compact) 72f else 110f)
+            isClickable = true; contentDescription = "시작하기"
+            setOnClickListener { if (demoMode) startDemo("family") else startSession() }
         }
-        if (landscape) box.addView(cards, lp(h = 0, weight = 1f, top = 16))
-        else box.addView(ScrollView(this).apply { isFillViewport = true; addView(cards) }, lp(h = 0, weight = 1f, top = 16))
+        box.addView(start, lp(top = 24))
+        if (demoMode) {
+            val r = row()
+            r.addView(chip("가족 시연 (끝말잇기)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("family", "WORD_CHAIN") } }, lp(w = 0, weight = 1f, end = 8))
+            r.addView(chip("가족 시연 (동네 퀴즈)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("family", "REGION") } }, lp(w = 0, weight = 1f, end = 8))
+            r.addView(chip("혼자 시연", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("solo") } }, lp(w = 0, weight = 1f))
+            box.addView(r, lp(top = 14))
+        }
+        box.addView(View(this), lp(h = 0, weight = 1f))
         val foot = row()
         val engine = (if (demoMode) "시연 모드 · " else "") + (realVoice?.engineName ?: "음성 엔진 준비 중")
         foot.addView(text("음성 엔진: $engine", 16f, textMid, false, 1), lp(w = 0, weight = 1f))
@@ -227,7 +227,7 @@ class MainActivity : Activity() {
 
         // 게임명 + 규칙 + 라운드
         val head = row()
-        head.addView(text(s.game?.title ?: "", 24f, accent, true, 1), lp(w = -2, end = 14))
+        head.addView(text(s.title.ifBlank { s.game?.title ?: "" }, 24f, accent, true, 1), lp(w = -2, end = 14))
         if (s.rule.isNotBlank()) head.addView(chip(s.rule, bg, yellow), lp(w = -2, end = 10))
         if (s.round.isNotBlank()) head.addView(chip(s.round, textHi, surface2), lp(w = -2))
         main.addView(head)
@@ -240,6 +240,7 @@ class MainActivity : Activity() {
             val picked = s.okIdx == i
             val row = text("${i + 1}   $o", 36f, if (picked) green else textHi, true, 1).apply {
                 background = round(surface2, 18f, if (picked) green else null); setPadding(dp(24f), dp(14f), dp(24f), dp(14f))
+                isClickable = true; setOnClickListener { mc.touch(o) }   // 정차 중에는 손으로 골라도 된다
             }
             main.addView(row, lp(top = if (i == 0) 12 else 10))
         }
@@ -320,32 +321,39 @@ class MainActivity : Activity() {
 /** 시연 모드 대본 (마이크 없는 환경에서 화면 녹화용) */
 object DemoScripts {
     fun players(t: GameType) = when (t) {
-        GameType.WORD_CHAIN -> listOf("아빠", "엄마", "지우", "민준")
         GameType.CHOSUNG -> listOf("아빠", "지우")
-        GameType.SOLO -> listOf("아빠")
         GameType.REGION -> listOf("아빠", "엄마", "지우")
+        else -> listOf("아빠", "엄마", "지우", "민준")
     }
 
-    fun forGame(t: GameType): List<String?> = when (t) {
-        GameType.WORD_CHAIN -> listOf(
-            "네 명이요", "아빠", "엄마", "지우", "민준", "그대로 할게요",
+    /** 가족(2명 이상): 인원 → 게임 선택 → 이름 등록 → 게임 → 그만 */
+    fun family(t: GameType): List<String?> = when (t) {
+        GameType.CHOSUNG -> listOf(
+            "두 명", "초성 퀴즈", "아빠", "지우", "그대로",
+            "김치찌개", "떡국", "떡볶이", "붕어빵", null, "호두과자",
+            "그만할게요",
+        )
+        GameType.REGION -> listOf(
+            "세 명", "지나는 동네 퀴즈", "아빠", "엄마", "지우", "섞어 줘",
+            "오!", "2번!", "엑스",                            // OX 정답, 객관식 정답, OX 오답
+            "그만할게요",
+        )
+        else -> listOf(
+            "네 명이요", "끝말잇기!", "아빠", "엄마", "지우", "민준", "그대로 할게요",
             "차표", "표범", "범인", "인형",          // 4연속 성공 -> 새 규칙(3글자)
             "형광등", "등산로", "노란색", "색깔",     // 두음법칙(로->노), 3글자 규칙 위반
             "다람쥐", "쥐포", "포도", "도토리",       // 새 단어 '바다'에서 재시작 -> 새 규칙('가'로 시작)
             "가방", "그만하자",
-        )
-        GameType.CHOSUNG -> listOf(
-            "두 명", "아빠", "지우", "그대로",
-            "김치찌개", "떡국", "떡볶이", "붕어빵", null, "호두과자",
-        )
-        GameType.SOLO -> listOf(
-            "동물이야?", "바다에 살아?", "목이 길어?", "기린!",   // 스무고개: 네 번째에 정답 기린
-            "다른 게임 하고 싶은데, 뭐가 있어?", "아재개그!",      // 다른 게임 목록 안내 -> 아재개그 퀴즈 선택
-            "카톡!", "우하하", "몰라",                              // 아재개그 3문제
-        )
-        GameType.REGION -> listOf(
-            "세 명", "아빠", "엄마", "지우", "섞어 줘",
-            "오!", "2번!", "엑스",                            // OX 정답, 객관식 정답, OX 오답
+            "그만할게요",
         )
     }
+
+    /** 혼자(1명): 인원 → 혼자용 게임 선택(스무고개) → 다른 게임(아재개그) → 그만 */
+    val solo: List<String?> = listOf(
+        "혼자요", "스무고개",
+        "동물이야?", "바다에 살아?", "목이 길어?", "기린!",     // 스무고개: 네 번째에 정답 기린
+        "다른 게임 하고 싶은데, 뭐가 있어?", "아재개그!",        // 다른 게임 목록 안내 -> 아재개그 퀴즈 선택
+        "카톡!", "우하하", "몰라",                                // 아재개그 3문제
+        "그만할게요",
+    )
 }
