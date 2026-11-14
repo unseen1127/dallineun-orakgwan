@@ -196,16 +196,16 @@ class MainActivity : Activity() {
         box.addView(text("화면을 보지 않고 목소리로 함께 노는 차 안의 오락관", 24f, textMid, false, 2))
         box.addView(text("시작하면 MC가 먼저 몇 명이 게임하는지 물어봐요.\n2명 이상이면 함께 하는 게임을, 혼자면 MC와 하는 게임을 안내해요.", 20f, textMid, false, 3), lp(top = 10))
         val start = text("시작하기", 34f, bg, true, 1).apply {
-            gravity = Gravity.CENTER; background = round(accent, 28f); minHeight = dp(if (compact) 72f else 110f)
+            gravity = Gravity.CENTER; background = round(accent, 28f); minHeight = dp(if (compact) 76f else 110f)
             isClickable = true; contentDescription = "시작하기"
             setOnClickListener { if (demoMode) startDemo("family") else startSession() }
         }
         box.addView(start, lp(top = 24))
         if (demoMode) {
             val r = row()
-            r.addView(chip("가족 시연 (끝말잇기)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("family", "WORD_CHAIN") } }, lp(w = 0, weight = 1f, end = 8))
-            r.addView(chip("가족 시연 (동네 퀴즈)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("family", "REGION") } }, lp(w = 0, weight = 1f, end = 8))
-            r.addView(chip("혼자 시연", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(64f); isClickable = true; setOnClickListener { startDemo("solo") } }, lp(w = 0, weight = 1f))
+            r.addView(chip("가족 시연 (끝말잇기)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(76f); isClickable = true; setOnClickListener { startDemo("family", "WORD_CHAIN") } }, lp(w = 0, weight = 1f, end = 8))
+            r.addView(chip("가족 시연 (동네 퀴즈)", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(76f); isClickable = true; setOnClickListener { startDemo("family", "REGION") } }, lp(w = 0, weight = 1f, end = 8))
+            r.addView(chip("혼자 시연", textHi, surface2).apply { gravity = Gravity.CENTER; minHeight = dp(76f); isClickable = true; setOnClickListener { startDemo("solo") } }, lp(w = 0, weight = 1f))
             box.addView(r, lp(top = 14))
         }
         box.addView(View(this), lp(h = 0, weight = 1f))
@@ -213,7 +213,7 @@ class MainActivity : Activity() {
         val engine = (if (demoMode) "시연 모드 · " else "") + (realVoice?.engineName ?: "음성 엔진 준비 중")
         foot.addView(text("음성 엔진: $engine", 16f, textMid, false, 1), lp(w = 0, weight = 1f))
         val demoBtn = chip(if (demoMode) "시연 모드 켜짐" else "시연 모드", if (demoMode) bg else textHi, if (demoMode) yellow else surface2).apply {
-            isClickable = true; minHeight = dp(64f); gravity = Gravity.CENTER
+            isClickable = true; minHeight = dp(76f); gravity = Gravity.CENTER
             setOnClickListener { demoMode = !demoMode; render(last) }
         }
         foot.addView(demoBtn, lp(w = -2))
@@ -240,6 +240,7 @@ class MainActivity : Activity() {
             val picked = s.okIdx == i
             val row = text("${i + 1}   $o", 36f, if (picked) green else textHi, true, 1).apply {
                 background = round(surface2, 18f, if (picked) green else null); setPadding(dp(24f), dp(14f), dp(24f), dp(14f))
+                minHeight = dp(76f); gravity = Gravity.CENTER_VERTICAL   // 터치 영역 76dp 이상 (Android Automotive 운전자 UX 가이드)
                 isClickable = true; setOnClickListener { mc.touch(o) }   // 정차 중에는 손으로 골라도 된다
             }
             main.addView(row, lp(top = if (i == 0) 12 else 10))
