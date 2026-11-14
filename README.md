@@ -57,7 +57,7 @@ Pleos 음성 서비스가 없는 기기(일반 AAOS 에뮬레이터, 휴대폰)�
 ```
 chmod +x gradlew   # 웹 업로드로 실행 권한이 빠졌을 수 있음
 ./gradlew assembleRelease
-./gradlew testReleaseUnitTest   # 한글 처리(두음법칙, 초성, 조사), 스무고개 질문 해석, 읽기용 문장 변환, 객관식·OX 답 인식, 지역 판정 단위 테스트
+./gradlew testReleaseUnitTest   # 게임 4종 전체 흐름 시뮬레이션(GameFlowSimulationTest) + 한글 처리(두음법칙, 초성, 조사), 스무고개 질문 해석, 읽기용 문장 변환, 객관식·OX 답 인식, 지역 판정 단위 테스트
 ```
 
 ## 테스트 환경 및 화면 규격
