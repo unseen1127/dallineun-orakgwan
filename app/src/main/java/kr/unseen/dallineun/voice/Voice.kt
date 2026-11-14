@@ -23,6 +23,8 @@ interface VoiceIO {
     suspend fun speak(text: String)
     /** 최대 timeoutMs 동안 한 번의 발화를 듣고 최종 텍스트를 돌려준다. 못 들으면 null. */
     suspend fun listen(timeoutMs: Long): String?
+    /** 직전 listen()에서 말소리 없이 순간 음량 급상승(박수)이 있었는지. 실차 마이크 기준 임계값 튜닝 필요 */
+    val clapDetected: Boolean get() = false
     fun stopAll()
     fun release()
 }
@@ -39,6 +41,8 @@ class PleosVoice private constructor(
     private var speakDone: CompletableDeferred<Unit>? = null
     private var listenDone: CompletableDeferred<String?>? = null
     private var lastPartial: String? = null
+    private val rmsLog = ArrayList<Double>()
+    override val clapDetected: Boolean get() = ClapDetector.isClap(rmsLog)
 
     private val ttsListener = object : ai.pleos.playground.tts.listener.EventListener {
         override fun onReady() = Unit
@@ -63,7 +67,7 @@ class PleosVoice private constructor(
             Log.w(TAG, "STT error $errorType"); listenDone?.complete(null)
         }
         override fun onReady() = Unit
-        override fun onUpdatedRms(rms: Double) = Unit
+        override fun onUpdatedRms(rms: Double) { rmsLog += rms }
     }
 
     init {
@@ -79,7 +83,7 @@ class PleosVoice private constructor(
     }
 
     override suspend fun listen(timeoutMs: Long): String? {
-        val d = CompletableDeferred<String?>(); listenDone = d; lastPartial = null
+        val d = CompletableDeferred<String?>(); listenDone = d; lastPartial = null; rmsLog.clear()
         stt.request()
         val r = withTimeoutOrNull(timeoutMs) { d.await() }
         if (r == null) stt.stop()
@@ -126,6 +130,8 @@ class AndroidVoice private constructor(
 ) : VoiceIO {
     override val engineName = "Android TTS/STT (fallback)"
     private var recognizer: SpeechRecognizer? = null
+    private val rmsLog = ArrayList<Double>()
+    override val clapDetected: Boolean get() = ClapDetector.isClap(rmsLog)
 
     override suspend fun speak(text: String) {
         val id = UUID.randomUUID().toString()
@@ -150,7 +156,7 @@ class AndroidVoice private constructor(
             override fun onError(error: Int) { d.complete(null) }
             override fun onReadyForSpeech(params: Bundle?) = Unit
             override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onRmsChanged(rmsdB: Float) { rmsLog += rmsdB.toDouble() }
             override fun onBufferReceived(buffer: ByteArray?) = Unit
             override fun onEndOfSpeech() = Unit
             override fun onPartialResults(partialResults: Bundle?) = Unit
@@ -160,6 +166,7 @@ class AndroidVoice private constructor(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
         }
+        rmsLog.clear()
         rec.startListening(intent)
         val r = withTimeoutOrNull(timeoutMs) { d.await() }
         if (r == null) rec.cancel()
@@ -191,14 +198,18 @@ class DemoVoice(
 ) : VoiceIO {
     override val engineName = base.engineName + " · 데모 대본"
     private val script = ArrayDeque<String?>()
+    private var lastWasClap = false
+    override val clapDetected: Boolean get() = lastWasClap
 
     fun load(answers: List<String?>) { script.clear(); script.addAll(answers) }
 
     override suspend fun speak(text: String) = base.speak(text)
 
     override suspend fun listen(timeoutMs: Long): String? {
+        lastWasClap = false
         if (script.isEmpty()) { delay(1200); return null }
         val a = script.removeFirst()
+        if (a == "(박수)") { delay(1200); onSimulatedAnswer("(박수)"); lastWasClap = true; delay(300); return null }
         if (a == null) { delay(timeoutMs); return null } // 시간 초과 연출
         delay(1500)
         onSimulatedAnswer(a)
@@ -208,4 +219,19 @@ class DemoVoice(
 
     override fun stopAll() = base.stopAll()
     override fun release() = base.release()
+}
+
+/** 음량 기록에서 박수 판정: 기준 음량 대비 짧고 큰 급상승이 있으면 박수로 본다 */
+object ClapDetector {
+    /** 기준 대비 상승 폭 임계값 (dB 계열 값 기준). 실차 마이크 환경에서 튜닝 필요 */
+    var jumpThreshold = 6.0
+
+    fun isClap(rms: List<Double>): Boolean {
+        if (rms.size < 4) return false
+        val sorted = rms.sorted()
+        val baseline = sorted[sorted.size / 2]
+        val peak = sorted.last()
+        val loudCount = rms.count { it > baseline + jumpThreshold }
+        return peak - baseline >= jumpThreshold && loudCount in 1..4
+    }
 }
