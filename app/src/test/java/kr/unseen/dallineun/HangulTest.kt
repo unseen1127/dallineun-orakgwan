@@ -43,7 +43,7 @@ class HangulTest {
         assertEquals("삼육구 게임! 삼, 육, 구가 들어가면", Hangul.spoken("369 게임! 3, 6, 9가 들어가면"))
         assertEquals("이제부터 세 글자 단어만!", Hangul.spoken("이제부터 3글자 단어만!"))
         assertEquals("일 번 찹쌀떡, 이 번 호두과자", Hangul.spoken("1번 찹쌀떡, 2번 호두과자"))
-        assertEquals("21번", Hangul.spoken("21번"))
+        assertEquals("21번", Hangul.spoken("21번")); assertEquals("네 명! 세 명", Hangul.spoken("4명! 3명")); assertEquals("스무", Hangul.native(20))
         assertEquals("구", Hangul.sino(9)); assertEquals("이십삼", Hangul.sino(23)); assertEquals("십", Hangul.sino(10))
     }
     @Test fun clap() {
