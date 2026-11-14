@@ -11,7 +11,7 @@ import kr.unseen.dallineun.voice.VoiceIO
 enum class GameType(val title: String, val desc: String) {
     WORD_CHAIN("끝말잇기", "MC가 순서·시간·판정, 중간에 새 규칙"),
     CHOSUNG("초성 퀴즈", "초성과 힌트를 듣고 정답 맞히기"),
-    GAME_369("369 게임", "숫자에 3·6·9가 나오면 숫자 대신 '짝!'"),
+    GAME_369("369 게임", "숫자에 3·6·9가 나오면 숫자 대신 박수!"),
     REGION("지나는 동네 퀴즈", "지나는 지역 문제를 객관식·OX로"),
 }
 
@@ -80,7 +80,7 @@ class MC(
     private suspend fun say(text: String) {
         waitIfPaused()
         set { it.copy(mcLine = text, listening = false) }
-        voice.speak(text)
+        voice.speak(Hangul.spoken(text))
     }
 
     private suspend fun waitIfPaused() {
@@ -100,7 +100,8 @@ class MC(
         }
         val r = voice.listen(seconds * 1000L)
         ticker.cancel()
-        set { it.copy(listening = false, heard = if (r != null) "${player?.name ?: "탑승자"}: $r" else "${player?.name ?: "탑승자"}: (시간 초과)") }
+        val who = player?.name ?: "탑승자"
+        set { it.copy(listening = false, heard = when { r != null -> "$who: $r"; voice.clapDetected -> "$who: 짝! (박수)"; else -> "$who: (시간 초과)" }) }
         return r
     }
 
@@ -256,7 +257,7 @@ class MC(
     /* ---------------- 369 게임 ---------------- */
 
     private suspend fun game369(players: MutableList<Player>) {
-        say("369 게임! 3, 6, 9가 들어가면 숫자 대신 '짝'! 틀리면 아웃!")
+        say("369 게임! 3, 6, 9가 들어가면 숫자 대신 박수! 틀리면 아웃!")
         val alive = players.toMutableList()
         var n = 1
         var idx = 0
@@ -270,7 +271,7 @@ class MC(
             val heard = hear(p, turnSeconds(p, if (n > 20) 3 else 4))
             if (isStop(heard)) { say("게임을 마칠게요."); return }
             val ok = when {
-                heard == null -> false
+                heard == null -> k > 0 && voice.clapDetected   // 말 없이 실제 박수만 친 경우
                 k > 0 -> Hangul.isClap(heard) && Hangul.parseNumber(heard.replace("짝", "")) == null
                 else -> !Hangul.isClap(heard) && Hangul.parseNumber(heard) == n
             }
@@ -284,12 +285,12 @@ class MC(
                 val pos = idx % alive.size
                 alive.remove(p)
                 set { it.copy(board = "아웃", boardLabel = "${p.name} 님", round = "생존 ${alive.size}명", players = players.toList()) }
-                say("땡! ${n}에서는 ${right}이에요. ${p.name} 님 아웃!")
+                say(if (k > 0) "땡! ${Hangul.sino(n)}에서는 박수! ${p.name} 님 아웃!" else "땡! ${Hangul.sino(n)}에서는 숫자 ${Hangul.sino(n)}! ${p.name} 님 아웃!")
                 if (alive.size <= 1) break
                 if (finalRoundNeeded()) { say("곧 도착이라 여기까지!"); break }
                 n = 1
                 idx = pos % alive.size
-                say("다시 일부터! ${alive[idx].name} 님, 일!")
+                say("다시 1부터! ${alive[idx].name} 님, 일!")
                 n = 2; idx++
             }
         }
@@ -316,7 +317,7 @@ class MC(
             when (q) {
                 is Content.Quiz.OX -> {
                     set { it.copy(current = players.indexOf(p), board = "O / X", boardLabel = "${reg?.name ?: "전국"} · OX 퀴즈", rule = head, round = "", options = emptyList()) }
-                    say("${p.name} 님, OX 퀴즈! ${q.q} 맞으면 오, 틀리면 엑스!")
+                    say("${p.name} 님, OX 퀴즈! ${q.q} 맞으면 O, 틀리면 X!")
                     val a = hear(p, turnSeconds(p, 6))
                     if (isStop(a)) { say("게임을 마칠게요."); return }
                     val ok = a?.let { Hangul.parseOX(it) } == q.answer

@@ -11,6 +11,26 @@ object Hangul {
 
     fun isSyllable(c: Char) = c.code in 0xAC00..0xD7A3
 
+    private val sinoDigit = listOf("", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구")
+
+    /** 1~99를 한자어 수로: 9 -> 구, 23 -> 이십삼 */
+    fun sino(n: Int): String {
+        if (n !in 1..99) return n.toString()
+        val t = n / 10; val o = n % 10
+        val tens = when (t) { 0 -> ""; 1 -> "십"; else -> sinoDigit[t] + "십" }
+        return tens + sinoDigit[o]
+    }
+
+    /** 화면 문구를 TTS가 자연스럽게 읽도록 바꾼다. OX -> 오엑스, 369 -> 삼육구, 3글자 -> 세 글자 */
+    fun spoken(text: String): String = text
+        .replace("OX", "오엑스")
+        .replace("369", "삼육구")
+        .replace("3, 6, 9", "삼, 육, 구")
+        .replace(Regex("(?<![A-Za-z])O(?![A-Za-z])"), "오")
+        .replace(Regex("(?<![A-Za-z])X(?![A-Za-z])"), "엑스")
+        .replace(Regex("(?<!\\d)([1-4])글자")) { listOf("", "한", "두", "세", "네")[it.groupValues[1].toInt()] + " 글자" }
+        .replace(Regex("(?<!\\d)([1-3])번")) { sinoDigit[it.groupValues[1].toInt()] + " 번" }
+
     /** '로/으로' 조사: 받침 없거나 ㄹ받침이면 '로' */
     fun ro(c: Char): String {
         if (!isSyllable(c)) return "로"
