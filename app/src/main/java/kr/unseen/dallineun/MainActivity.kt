@@ -76,6 +76,10 @@ class MainActivity : Activity() {
             realVoice = PleosVoice.create(this@MainActivity) ?: AndroidVoice.create(this@MainActivity)
             mc.voice = realVoice!!
             render(last)
+            // 검증·시연용: adb shell am start ... --ez demo true --es game WORD_CHAIN
+            intent?.getStringExtra("game")?.let { g ->
+                runCatching { GameType.valueOf(g) }.getOrNull()?.let { delay(1500); startGame(it) }
+            }
         }
         // 데모 시뮬레이션 중 남은 시간 흐르게
         scope.launch { while (isActive) { delay(1000); car.simulateTick(1) } }
