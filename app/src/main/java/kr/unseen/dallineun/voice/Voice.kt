@@ -1,0 +1,211 @@
+package kr.unseen.dallineun.voice
+
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.util.Log
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Locale
+import java.util.UUID
+import android.speech.tts.TextToSpeech as AndroidTts
+import android.speech.tts.UtteranceProgressListener
+
+private const val TAG = "DallineunVoice"
+
+/** MC가 말하고(TTS) 듣는(STT) 채널. 게임 엔진은 이 인터페이스만 사용한다. */
+interface VoiceIO {
+    val engineName: String
+    suspend fun speak(text: String)
+    /** 최대 timeoutMs 동안 한 번의 발화를 듣고 최종 텍스트를 돌려준다. 못 들으면 null. */
+    suspend fun listen(timeoutMs: Long): String?
+    fun stopAll()
+    fun release()
+}
+
+/* ------------------------------------------------------------------ */
+/* 1) Pleos Connect SDK (TextToSpeech / SpeechToText, ON_DEVICE 모드)      */
+/* ------------------------------------------------------------------ */
+class PleosVoice private constructor(
+    private val tts: ai.pleos.playground.tts.TextToSpeech,
+    private val stt: ai.pleos.playground.stt.SpeechToText,
+) : VoiceIO {
+    override val engineName = "Pleos Connect TTS/STT"
+
+    private var speakDone: CompletableDeferred<Unit>? = null
+    private var listenDone: CompletableDeferred<String?>? = null
+    private var lastPartial: String? = null
+
+    private val ttsListener = object : ai.pleos.playground.tts.listener.EventListener {
+        override fun onReady() = Unit
+        override fun onStart() = Unit
+        override fun onUpdatedRms(rms: Double) = Unit
+        override fun onDone() { speakDone?.complete(Unit) }
+        override fun onStop() { speakDone?.complete(Unit) }
+        override fun onError(errorType: ai.pleos.playground.tts.constant.ErrorType) {
+            Log.w(TAG, "TTS error $errorType"); speakDone?.complete(Unit)
+        }
+    }
+
+    private val sttListener = object : ai.pleos.playground.stt.listener.ResultListener {
+        override fun onUpdated(text: String, isFinal: Boolean) {
+            lastPartial = text
+            if (isFinal) listenDone?.complete(text)
+        }
+        override fun onUpdatedEpdData(start: Long, end: Long) = Unit
+        override fun onStartedRecognition() = Unit
+        override fun onEndedRecognition() { listenDone?.complete(lastPartial) }
+        override fun onError(errorType: ai.pleos.playground.stt.constant.ErrorType) {
+            Log.w(TAG, "STT error $errorType"); listenDone?.complete(null)
+        }
+        override fun onReady() = Unit
+        override fun onUpdatedRms(rms: Double) = Unit
+    }
+
+    init {
+        tts.addEventListener(ttsListener)
+        stt.addListener(sttListener)
+    }
+
+    override suspend fun speak(text: String) {
+        val d = CompletableDeferred<Unit>(); speakDone = d
+        tts.speak(text, true)
+        // 안전장치: 콜백이 오지 않아도 진행이 멈추지 않게 글자 수 기반 상한 시간
+        withTimeoutOrNull(4000L + text.length * 220L) { d.await() }
+    }
+
+    override suspend fun listen(timeoutMs: Long): String? {
+        val d = CompletableDeferred<String?>(); listenDone = d; lastPartial = null
+        stt.request()
+        val r = withTimeoutOrNull(timeoutMs) { d.await() }
+        if (r == null) stt.stop()
+        return r ?: lastPartial?.takeIf { it.isNotBlank() }
+    }
+
+    override fun stopAll() { runCatching { tts.stop() }; runCatching { stt.stop() } }
+
+    override fun release() {
+        runCatching { tts.removeEventListener(ttsListener); tts.release() }
+        runCatching { stt.removeListener(sttListener); stt.release() }
+    }
+
+    companion object {
+        /** Pleos 음성 서비스가 있는 차량/에뮬레이터에서만 성공한다. 실패하면 null. */
+        suspend fun create(context: Context): PleosVoice? = runCatching {
+            val app = context.applicationContext
+            val tts = ai.pleos.playground.tts.TextToSpeech(app, ai.pleos.playground.tts.constant.Mode.ON_DEVICE)
+            val stt = ai.pleos.playground.stt.SpeechToText(app, ai.pleos.playground.stt.constant.Mode.ON_DEVICE)
+            val ttsOk = CompletableDeferred<Boolean>()
+            val sttOk = CompletableDeferred<Boolean>()
+            tts.initialize(object : ai.pleos.playground.tts.listener.OnInitializeListener {
+                override fun onSuccess() { ttsOk.complete(true) }
+                override fun onFailure(errorType: ai.pleos.playground.tts.constant.ErrorType) { ttsOk.complete(false) }
+            })
+            stt.initialize(object : ai.pleos.playground.stt.listener.OnInitializeListener {
+                override fun onSuccess() { sttOk.complete(true) }
+                override fun onFailure(errorType: ai.pleos.playground.stt.constant.ErrorType) { sttOk.complete(false) }
+            })
+            val ok = withTimeoutOrNull(3000) { ttsOk.await() && sttOk.await() } ?: false
+            if (!ok) { runCatching { tts.release() }; runCatching { stt.release() }; return@runCatching null }
+            tts.setLocale(Locale.KOREA); stt.setLocale(Locale.KOREA)
+            PleosVoice(tts, stt)
+        }.onFailure { Log.w(TAG, "Pleos voice unavailable", it) }.getOrNull()
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 2) 표준 Android TTS / SpeechRecognizer (Pleos 서비스가 없는 기기용 대체)   */
+/* ------------------------------------------------------------------ */
+class AndroidVoice private constructor(
+    private val context: Context,
+    private val tts: AndroidTts,
+) : VoiceIO {
+    override val engineName = "Android TTS/STT (fallback)"
+    private var recognizer: SpeechRecognizer? = null
+
+    override suspend fun speak(text: String) {
+        val id = UUID.randomUUID().toString()
+        val d = CompletableDeferred<Unit>()
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) { if (utteranceId == id) d.complete(Unit) }
+            @Deprecated("deprecated") override fun onError(utteranceId: String?) { d.complete(Unit) }
+        })
+        tts.speak(text, AndroidTts.QUEUE_FLUSH, null, id)
+        withTimeoutOrNull(4000L + text.length * 220L) { d.await() }
+    }
+
+    override suspend fun listen(timeoutMs: Long): String? {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) { delay(timeoutMs); return null }
+        val d = CompletableDeferred<String?>()
+        val rec = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also { recognizer = it }
+        rec.setRecognitionListener(object : RecognitionListener {
+            override fun onResults(results: Bundle?) {
+                d.complete(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull())
+            }
+            override fun onError(error: Int) { d.complete(null) }
+            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onBeginningOfSpeech() = Unit
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() = Unit
+            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+        }
+        rec.startListening(intent)
+        val r = withTimeoutOrNull(timeoutMs) { d.await() }
+        if (r == null) rec.cancel()
+        return r
+    }
+
+    override fun stopAll() { tts.stop(); recognizer?.cancel() }
+    override fun release() { tts.shutdown(); recognizer?.destroy() }
+
+    companion object {
+        suspend fun create(context: Context): AndroidVoice {
+            val d = CompletableDeferred<Int>()
+            val tts = AndroidTts(context.applicationContext) { d.complete(it) }
+            withTimeoutOrNull(3000) { d.await() }
+            tts.language = Locale.KOREA
+            tts.setSpeechRate(1.05f)
+            return AndroidVoice(context.applicationContext, tts)
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 3) 데모 모드: 실제 TTS로 진행하고, 탑승자 답변은 대본으로 시뮬레이션         */
+/*    (마이크 없는 에뮬레이터 시연·심사용 화면 녹화)                        */
+/* ------------------------------------------------------------------ */
+class DemoVoice(
+    private val base: VoiceIO,
+    private val onSimulatedAnswer: (String) -> Unit,
+) : VoiceIO {
+    override val engineName = base.engineName + " · 데모 대본"
+    private val script = ArrayDeque<String?>()
+
+    fun load(answers: List<String?>) { script.clear(); script.addAll(answers) }
+
+    override suspend fun speak(text: String) = base.speak(text)
+
+    override suspend fun listen(timeoutMs: Long): String? {
+        if (script.isEmpty()) { delay(1200); return null }
+        val a = script.removeFirst()
+        if (a == null) { delay(timeoutMs); return null } // 시간 초과 연출
+        delay(1500)
+        onSimulatedAnswer(a)
+        delay(500)
+        return a
+    }
+
+    override fun stopAll() = base.stopAll()
+    override fun release() = base.release()
+}
