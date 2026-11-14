@@ -211,8 +211,9 @@ class MainActivity : Activity() {
         if (s.board.isNotBlank()) main.addView(text(s.board, if (s.board.length > 8) 56f else 80f, textHi, true, 1), lp(top = 6))
         // 객관식 보기: 큰 글씨 3줄
         s.options.forEachIndexed { i, o ->
-            val row = text("${i + 1}   $o", 36f, textHi, true, 1).apply {
-                background = round(surface2, 18f); setPadding(dp(24f), dp(14f), dp(24f), dp(14f))
+            val picked = s.okIdx == i
+            val row = text("${i + 1}   $o", 36f, if (picked) green else textHi, true, 1).apply {
+                background = round(surface2, 18f, if (picked) green else null); setPadding(dp(24f), dp(14f), dp(24f), dp(14f))
             }
             main.addView(row, lp(top = if (i == 0) 12 else 10))
         }
@@ -293,7 +294,7 @@ object DemoScripts {
     fun players(t: GameType) = when (t) {
         GameType.WORD_CHAIN -> listOf("아빠", "엄마", "지우", "민준")
         GameType.CHOSUNG -> listOf("아빠", "지우")
-        GameType.SOLO -> listOf("드라이버")
+        GameType.SOLO -> listOf("아빠")
         GameType.REGION -> listOf("아빠", "엄마", "지우")
     }
 
@@ -310,8 +311,9 @@ object DemoScripts {
             "김치찌개", "떡국", "떡볶이", "붕어빵", null, "호두과자",
         )
         GameType.SOLO -> listOf(
-            "차표", "정류장", "갑옷",          // MC: 자동차 -> 표정 -> 장갑, '옷'에서 MC가 막혀 운전자 승리
-            "2번 꿈돌이", "엑스!",               // 대전 객관식(정답 꿈돌이), 대전 OX(정답 X)
+            "동물이야?", "바다에 살아?", "목이 길어?", "기린!",   // 스무고개: 네 번째에 정답 기린
+            "다른 게임 하고 싶은데, 뭐가 있어?", "아재개그!",      // 다른 게임 목록 안내 -> 아재개그 퀴즈 선택
+            "카톡!", "우하하", "몰라",                              // 아재개그 3문제
         )
         GameType.REGION -> listOf(
             "세 명", "아빠", "엄마", "지우", "섞어 줘",
