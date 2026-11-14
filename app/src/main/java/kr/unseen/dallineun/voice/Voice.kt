@@ -83,11 +83,19 @@ class PleosVoice private constructor(
     }
 
     override suspend fun listen(timeoutMs: Long): String? {
-        val d = CompletableDeferred<String?>(); listenDone = d; lastPartial = null; rmsLog.clear()
-        stt.request()
-        val r = withTimeoutOrNull(timeoutMs) { d.await() }
-        if (r == null) stt.stop()
-        return r ?: lastPartial?.takeIf { it.isNotBlank() }
+        val deadline = System.currentTimeMillis() + timeoutMs
+        rmsLog.clear()
+        while (true) {
+            val remain = deadline - System.currentTimeMillis()
+            if (remain < 400) return lastPartial?.takeIf { it.isNotBlank() }
+            val d = CompletableDeferred<String?>(); listenDone = d; lastPartial = null
+            stt.request()
+            val r = withTimeoutOrNull(remain) { d.await() }
+            if (r == null && System.currentTimeMillis() >= deadline - 50) { stt.stop(); return lastPartial?.takeIf { it.isNotBlank() } }
+            if (!r.isNullOrBlank()) return r
+            // 말이 없어 인식이 일찍 끝나면 남은 시간 동안 다시 듣는다
+            delay(250)
+        }
     }
 
     override fun stopAll() { runCatching { tts.stop() }; runCatching { stt.stop() } }
@@ -149,6 +157,20 @@ class AndroidVoice private constructor(
 
     override suspend fun listen(timeoutMs: Long): String? {
         if (!allowStt || !SpeechRecognizer.isRecognitionAvailable(context)) { delay(timeoutMs); return null }
+        val deadline = System.currentTimeMillis() + timeoutMs
+        rmsLog.clear()
+        while (true) {
+            val remain = deadline - System.currentTimeMillis()
+            if (remain < 600) { delay(remain.coerceAtLeast(0)); return null }
+            val r = listenOnce(remain)
+            if (!r.isNullOrBlank()) return r
+            if (System.currentTimeMillis() >= deadline - 50) return null
+            // 휴대폰 음성 인식은 몇 초 침묵이면 스스로 끝나므로, 남은 시간 동안 다시 듣는다
+            delay(250)
+        }
+    }
+
+    private suspend fun listenOnce(remainMs: Long): String? {
         val d = CompletableDeferred<String?>()
         val rec = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also { recognizer = it }
         rec.setRecognitionListener(object : RecognitionListener {
@@ -168,9 +190,8 @@ class AndroidVoice private constructor(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
         }
-        rmsLog.clear()
         rec.startListening(intent)
-        val r = withTimeoutOrNull(timeoutMs) { d.await() }
+        val r = withTimeoutOrNull(remainMs) { d.await() }
         if (r == null) rec.cancel()
         return r
     }
