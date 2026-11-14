@@ -38,7 +38,7 @@ Pleos 음성 서비스가 없는 기기(일반 AAOS 에뮬레이터, 휴대폰)�
    설치 방법: https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator
 2. 에뮬레이터를 켠 뒤 Releases에서 APK를 내려받아 설치합니다.
    ```
-   adb install -r 황현상_달리는오락관_release.apk
+   adb install -r HwangHyunsang_DallineunOrakgwan_release.apk
    ```
 3. 앱 목록에서 "달리는 오락관"을 실행하고 마이크 권한을 허용합니다.
 4. 게임 카드를 누르면 MC가 음성으로 진행합니다.
@@ -71,7 +71,8 @@ chmod +x gradlew   # 웹 업로드로 실행 권한이 빠졌을 수 있음
 APK 용량(약 28MB)이 GitHub 웹 업로드 한도(25MB)를 넘어 GitHub Releases에 등록했습니다.
 
 - Release 페이지: https://github.com/unseen1127/dallineun-orakgwan/releases/tag/v0.1.0
-- 파일명: `황현상_달리는오락관_release.apk` (release 서명)
+- 파일명: `HwangHyunsang_DallineunOrakgwan_release.apk` (release 서명, 원래 파일명 `황현상_달리는오락관_release.apk`를 GitHub 한글 파일명 제한으로 영문 표기)
+- 직접 내려받기: https://github.com/unseen1127/dallineun-orakgwan/releases/download/v0.1.0/HwangHyunsang_DallineunOrakgwan_release.apk
 
 ## 매니페스트 주요 선언
 
