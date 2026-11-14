@@ -13,7 +13,10 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
@@ -66,7 +69,7 @@ class MainActivity : Activity() {
         car = CarContext(this)
         car.onChange = { runOnUiThread { render(last) } }
         car.start()
-        mc = MC(scope, car) { s -> runOnUiThread { last = s; render(s) } }
+        mc = MC(scope, car, { s -> runOnUiThread { last = s; render(s) } }) { left -> countdownBeep(left) }
 
         demoMode = intent?.getBooleanExtra("demo", false) == true
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -93,7 +96,16 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        scope.cancel(); realVoice?.release(); car.release(); super.onDestroy()
+        scope.cancel(); realVoice?.release(); car.release(); runCatching { tone?.release() }; super.onDestroy()
+    }
+
+    /* ---------------- 카운트다운 소리: 남은 5초부터 1초마다 작게 ---------------- */
+    private var tone: ToneGenerator? = null
+    private fun countdownBeep(left: Int) {
+        runCatching {
+            val t = tone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 30).also { tone = it }   // 미디어 볼륨의 약 30%
+            if (left == 1) t.startTone(ToneGenerator.TONE_PROP_BEEP2, 220) else t.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+        }
     }
 
     /* ---------------- 게임 시작 ---------------- */
@@ -122,9 +134,13 @@ class MainActivity : Activity() {
         setColor(color); cornerRadius = dp(r).toFloat(); stroke?.let { setStroke(dp(3f), it) }
     }
 
+    /** 휴대폰처럼 작은 화면에서는 차량용 큰 글씨를 줄여 잘리지 않게 한다 */
+    private val compact get() = resources.configuration.smallestScreenWidthDp < 600
+    private fun sz(v: Float) = if (compact) v * 0.62f else v
+
     private fun text(s: String, size: Float, color: Int = textHi, bold: Boolean = false, lines: Int = 2) =
         TextView(this).apply {
-            text = s; setTextColor(color); setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            text = s; setTextColor(color); setTextSize(TypedValue.COMPLEX_UNIT_SP, sz(size))
             typeface = Typeface.create(font, if (bold) 700 else 400, false)
             maxLines = lines; ellipsize = TextUtils.TruncateAt.END
             includeFontPadding = false
@@ -144,7 +160,8 @@ class MainActivity : Activity() {
 
     private fun render(s: UiState) {
         root.removeAllViews()
-        val page = col().apply { setPadding(dp(32f), dp(24f), dp(32f), dp(24f)) }
+        val pad = if (compact) 14f else 32f
+        val page = col().apply { setPadding(dp(pad), dp(pad * 0.75f), dp(pad), dp(pad * 0.75f)) }
         root.addView(page, FrameLayout.LayoutParams(-1, -1))
         page.addView(topBar())
         when (s.screen) {
@@ -176,7 +193,9 @@ class MainActivity : Activity() {
         GameType.values().forEachIndexed { i, g ->
             val card = col().apply {
                 background = round(surface, 24f)
-                setPadding(dp(28f), dp(28f), dp(28f), dp(28f))
+                val cp = if (compact) 18f else 28f
+                setPadding(dp(cp), dp(cp), dp(cp), dp(cp))
+                if (!landscape) minimumHeight = dp(if (compact) 104f else 150f)
                 isClickable = true
                 setOnClickListener { startGame(g) }
                 contentDescription = g.title
@@ -185,10 +204,11 @@ class MainActivity : Activity() {
             card.addView(text(g.title, 30f, textHi, true, 2), lp(top = 14))
             card.addView(text(g.desc, 20f, textMid, false, 2), lp(top = 10))
             val last = GameType.values().size - 1
-            val l = if (landscape) lp(w = 0, h = -1, weight = 1f, end = if (i < last) 16 else 0) else lp(h = 0, weight = 1f, top = if (i > 0) 16 else 0)
+            val l = if (landscape) lp(w = 0, h = -1, weight = 1f, end = if (i < last) 16 else 0) else lp(top = if (i > 0) 12 else 0)
             cards.addView(card, l)
         }
-        box.addView(cards, lp(h = 0, weight = 1f, top = 16))
+        if (landscape) box.addView(cards, lp(h = 0, weight = 1f, top = 16))
+        else box.addView(ScrollView(this).apply { isFillViewport = true; addView(cards) }, lp(h = 0, weight = 1f, top = 16))
         val foot = row()
         val engine = (if (demoMode) "시연 모드 · " else "") + (realVoice?.engineName ?: "음성 엔진 준비 중")
         foot.addView(text("음성 엔진: $engine", 16f, textMid, false, 1), lp(w = 0, weight = 1f))
@@ -235,11 +255,13 @@ class MainActivity : Activity() {
         }
         turn.addView(text(who, 34f, textHi, true, 1), lp(w = 0, weight = 1f))
         if (s.listening) {
-            val t = text("${s.timerLeft}", 44f, if (s.timerLeft <= 3) accent else textHi, true, 1).apply {
+            val warn = s.timerLeft <= 5
+            val t = text("${s.timerLeft}", 44f, if (warn) accent else textHi, true, 1).apply {
                 gravity = Gravity.CENTER
-                background = round(surface2, 50f, if (s.timerLeft <= 3) accent else green)
+                background = round(surface2, 50f, if (warn) accent else green)
             }
-            turn.addView(t, LinearLayout.LayoutParams(dp(100f), dp(100f)))
+            val ts = if (compact) 64f else 100f
+            turn.addView(t, LinearLayout.LayoutParams(dp(ts), dp(ts)))
         }
         main.addView(turn, lp(top = 18))
 
@@ -287,9 +309,9 @@ class MainActivity : Activity() {
             }
         } else {
             col().apply {
-                addView(main, lp(h = 0, weight = 1f))
-                addView(board, lp(top = 16))
-                addView(ctl, lp(top = 16))
+                addView(ScrollView(this@MainActivity).apply { isFillViewport = true; addView(main) }, lp(h = 0, weight = 1f))
+                addView(board, lp(top = 12))
+                addView(ctl, lp(top = 12))
             }
         }
     }
