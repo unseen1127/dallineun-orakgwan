@@ -39,7 +39,7 @@
 
 1. Android Studio에서 Pleos Connect Emulator(v2.1.0, API 34)를 설치하고 AVD를 만듭니다.
    설치 방법: https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator
-2. 에뮬레이터를 켠 뒤 Releases에서 APK를 내려받아 설치합니다.
+2. 에뮬레이터를 켠 뒤 저장소의 `apk/` 폴더(또는 Releases)에 있는 APK를 설치합니다.
    ```
    adb install -r HwangHyunsang_DallineunOrakgwan_release.apk
    ```
@@ -73,11 +73,12 @@ chmod +x gradlew   # 웹 업로드로 실행 권한이 빠졌을 수 있음
 
 ## APK 위치
 
-APK 용량(약 28MB)이 GitHub 웹 업로드 한도(25MB)를 넘어 GitHub Releases에 등록했습니다.
+APK는 저장소 안에 함께 들어 있습니다.
 
-- Release 페이지: https://github.com/unseen1127/dallineun-orakgwan/releases/tag/v0.1.0
-- 파일명: `HwangHyunsang_DallineunOrakgwan_release.apk` (release 서명, 원래 파일명 `황현상_달리는오락관_release.apk`를 GitHub 한글 파일명 제한으로 영문 표기)
-- 직접 내려받기: https://github.com/unseen1127/dallineun-orakgwan/releases/download/v0.1.0/HwangHyunsang_DallineunOrakgwan_release.apk
+- 저장소 경로: [`apk/HwangHyunsang_DallineunOrakgwan_release.apk`](apk/HwangHyunsang_DallineunOrakgwan_release.apk) (release 서명, 약 21MB)
+- 원래 파일명은 `황현상_달리는오락관_release.apk`이며, GitHub 한글 파일명 제한 때문에 영문으로 표기했습니다.
+- 같은 파일을 Release v0.1.0에도 올려 두었습니다: https://github.com/unseen1127/dallineun-orakgwan/releases/tag/v0.1.0
+- 포함 ABI: arm64-v8a, x86_64 (Pleos Connect 차량·에뮬레이터와 64비트 휴대폰용)
 
 ## 매니페스트 주요 선언
 
