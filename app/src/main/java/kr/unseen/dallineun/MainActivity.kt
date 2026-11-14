@@ -98,7 +98,9 @@ class MainActivity : Activity() {
             val demo = DemoVoice(v) { }
             demo.load(DemoScripts.forGame(type))
             mc.voice = demo; mc.demo = true
-            car.simulate(driving = true, remainSec = 80 * 60, destination = "광주 무등산",
+            if (type == GameType.SOLO) car.simulate(driving = true, remainSec = 95 * 60, destination = "부산 해운대",
+                address = "대전광역시 유성구", lat = 36.36, lng = 127.36)
+            else car.simulate(driving = true, remainSec = 80 * 60, destination = "광주 무등산",
                 address = "충청남도 천안시 동남구", lat = 36.80, lng = 127.15)
             mc.start(type, DemoScripts.players(type))
         } else {
@@ -291,7 +293,7 @@ object DemoScripts {
     fun players(t: GameType) = when (t) {
         GameType.WORD_CHAIN -> listOf("아빠", "엄마", "지우", "민준")
         GameType.CHOSUNG -> listOf("아빠", "지우")
-        GameType.GAME_369 -> listOf("아빠", "엄마", "지우", "민준")
+        GameType.SOLO -> listOf("드라이버")
         GameType.REGION -> listOf("아빠", "엄마", "지우")
     }
 
@@ -307,11 +309,9 @@ object DemoScripts {
             "두 명", "아빠", "지우", "그대로",
             "김치찌개", "떡국", "떡볶이", "붕어빵", null, "호두과자",
         )
-        GameType.GAME_369 -> listOf(
-            "네 명이요", "아빠", "엄마", "지우", "민준", "그대로 할게요",
-            "이", "(박수)", "사", "오", "(박수)", "칠", "팔", "구",   // 아빠: 9에서 박수를 못 쳐서 아웃
-            "이", "삼",                                      // 민준: 3에서 숫자를 말해 아웃
-            "이", "(박수)", "사", "오", "육",                // 지우: 6에서 아웃 -> 엄마 생존
+        GameType.SOLO -> listOf(
+            "차표", "정류장", "갑옷",          // MC: 자동차 -> 표정 -> 장갑, '옷'에서 MC가 막혀 운전자 승리
+            "2번 꿈돌이", "엑스!",               // 대전 객관식(정답 꿈돌이), 대전 OX(정답 X)
         )
         GameType.REGION -> listOf(
             "세 명", "아빠", "엄마", "지우", "섞어 줘",
