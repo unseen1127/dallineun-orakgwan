@@ -73,7 +73,9 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION), 1)
         }
         scope.launch {
-            realVoice = PleosVoice.create(this@MainActivity) ?: AndroidVoice.create(this@MainActivity)
+            // 차량(AAOS)에서는 음성 인식을 Pleos SpeechToText SDK로만 처리한다 (외부 음성 인식 대체 금지)
+            val automotive = packageManager.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)
+            realVoice = PleosVoice.create(this@MainActivity) ?: AndroidVoice.create(this@MainActivity, allowStt = !automotive)
             mc.voice = realVoice!!
             render(last)
             // 검증·시연용: adb shell am start ... --ez demo true --es game WORD_CHAIN
