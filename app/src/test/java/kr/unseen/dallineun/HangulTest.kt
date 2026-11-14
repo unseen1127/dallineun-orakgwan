@@ -58,6 +58,13 @@ class HangulTest {
         assertTrue(Content.mcWords.none { it.first() in Hangul.allowedStarts('옷') })
         assertEquals(Content.mcWords.size, Content.mcWords.toSet().size)
     }
+    @Test fun twentyQuestions() {
+        val giraffe = Content.twenty.first()
+        fun ans(q: String) = Content.twentyKeys.firstOrNull { it.first.containsMatchIn(q.replace(" ", "")) }?.second?.let { it in giraffe.facts }
+        assertEquals(true, ans("동물이야?")); assertEquals(false, ans("바다에 살아?")); assertEquals(true, ans("다리가 네 개야?"))
+        assertEquals(true, ans("사람보다 커?")); assertEquals(true, ans("목이 길어?")); assertEquals(false, ans("먹을 수 있어?"))
+        assertTrue(Content.twenty.any { t -> t.aliases.any { "기린!".contains(it) } })
+    }
     @Test fun region() {
         assertEquals("천안", Content.findRegion("충청남도 천안시 동남구", null, null)?.name)
         assertTrue(Content.regions.all { r -> r.qs.all { q -> q !is Content.Quiz.Choice || q.options.size == 3 } })
