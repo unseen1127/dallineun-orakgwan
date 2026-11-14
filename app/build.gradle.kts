@@ -14,7 +14,11 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        // Pleos Connect(차량·에뮬레이터)와 최신 휴대폰은 64비트. APK 용량을 25MB 아래로 맞추려고 64비트만 포함
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
+    // 네이티브 라이브러리를 압축해 APK 용량을 줄임 (설치 시 압축 해제)
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     // 서명키는 저장소에 포함하지 않음. ../release.keystore 가 있으면 release 서명, 없으면 debug 서명으로 빌드
     val releaseKeystore = rootProject.file("release.keystore")
