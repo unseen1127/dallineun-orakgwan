@@ -21,6 +21,12 @@ object Hangul {
         return tens + sinoDigit[o]
     }
 
+    private val nativeNum = listOf("", "한", "두", "세", "네", "다섯", "여섯", "일곱", "여덟", "아홉", "열",
+        "열한", "열두", "열세", "열네", "열다섯", "열여섯", "열일곱", "열여덟", "열아홉", "스무")
+
+    /** 1~20을 고유어 수(관형형)로: 4 -> 네, 20 -> 스무 */
+    fun native(n: Int): String = nativeNum.getOrElse(n) { n.toString() }
+
     /** 화면 문구를 TTS가 자연스럽게 읽도록 바꾼다. OX -> 오엑스, 369 -> 삼육구, 3글자 -> 세 글자 */
     fun spoken(text: String): String = text
         .replace("OX", "오엑스")
@@ -30,6 +36,7 @@ object Hangul {
         .replace(Regex("(?<![A-Za-z])X(?![A-Za-z])"), "엑스")
         .replace(Regex("(?<!\\d)([1-4])글자")) { listOf("", "한", "두", "세", "네")[it.groupValues[1].toInt()] + " 글자" }
         .replace(Regex("(?<!\\d)([1-3])번")) { sinoDigit[it.groupValues[1].toInt()] + " 번" }
+        .replace(Regex("(?<!\\d)([1-9])명")) { native(it.groupValues[1].toInt()) + " 명" }
 
     /** '로/으로' 조사: 받침 없거나 ㄹ받침이면 '로' */
     fun ro(c: Char): String {

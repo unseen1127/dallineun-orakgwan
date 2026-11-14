@@ -5,7 +5,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kr.unseen.dallineun.car.CarContext
+import kr.unseen.dallineun.car.CarEnv
 import kr.unseen.dallineun.voice.VoiceIO
 
 enum class GameType(val title: String, val desc: String) {
@@ -40,7 +40,7 @@ data class UiState(
  */
 class MC(
     private val scope: CoroutineScope,
-    private val car: CarContext,
+    private val car: CarEnv,
     private val render: (UiState) -> Unit,
 ) {
     lateinit var voice: VoiceIO
@@ -316,7 +316,7 @@ class MC(
                 if (guessed.name == item.name) {
                     me.score += maxOf(1, 21 - asked)
                     set { it.copy(board = item.name, boardLabel = "정답", players = both) }
-                    say("정답! ${item.name}! ${Hangul.sino(asked)} 번 만에 맞히셨어요!")
+                    say("정답! ${item.name}! ${Hangul.native(asked)} 번 만에 맞히셨어요!")
                     return
                 } else { say("아니요, ${guessed.name}은 아니에요!"); continue }
             }
