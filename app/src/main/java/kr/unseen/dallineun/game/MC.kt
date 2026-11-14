@@ -446,12 +446,13 @@ class MC(
         val reg = Content.findRegion(s.address, s.lat, s.lng)
         val pool = if (reg != null) {
             say("지금 ${reg.name} 근처를 지나고 있어요! ${reg.name} 퀴즈, 객관식과 OX로 나갑니다.")
-            reg.qs + (if (demo) Content.nationwide else Content.nationwide.shuffled())
+            // 지역을 알면 그 지역 문제만 낸다 (다른 지역 문제를 섞지 않음)
+            reg.qs
         } else {
             say("위치를 확인하지 못해서 전국 퀴즈로 진행할게요.")
             if (demo) Content.nationwide else Content.nationwide.shuffled()
         }
-        val list = pool.take(maxOf(players.size, 3))
+        val list = if (reg != null) pool else pool.take(maxOf(players.size, 3))
         for ((i, q) in list.withIndex()) {
             val p = players[i % players.size]
             val head = "${i + 1} / ${list.size} 문제"
