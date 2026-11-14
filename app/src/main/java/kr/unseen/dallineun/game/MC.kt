@@ -42,6 +42,8 @@ class MC(
     private val scope: CoroutineScope,
     private val car: CarEnv,
     private val render: (UiState) -> Unit,
+    /** 남은 시간 5초 이하에서 1초마다 호출 (소리 카운트다운) */
+    private val onCountdown: (Int) -> Unit = {},
 ) {
     lateinit var voice: VoiceIO
     /** 시연 모드: 시작 단어·규칙·순서를 고정해 대본과 맞춘다 */
@@ -96,9 +98,21 @@ class MC(
     private suspend fun hear(player: Player?, seconds: Int): String? {
         waitIfPaused()
         set { it.copy(listening = true, timerLeft = seconds, timerTotal = seconds) }
+        // 실제 시계 기준으로 남은 시간을 계산한다 (지연이 쌓여 빨라지거나 느려지지 않게)
+        val start = System.nanoTime()
         val ticker = scope.launch {
-            var left = seconds
-            while (isActive && left > 0) { delay(1000); left--; set { it.copy(timerLeft = left) } }
+            var shown = seconds
+            while (isActive) {
+                val elapsedMs = (System.nanoTime() - start) / 1_000_000
+                val left = (seconds - (elapsedMs / 1000).toInt()).coerceAtLeast(0)
+                if (left != shown) {
+                    shown = left
+                    set { it.copy(timerLeft = left) }
+                    if (left in 1..5) onCountdown(left)
+                }
+                if (left <= 0) break
+                delay(100)
+            }
         }
         val r = voice.listen(seconds * 1000L)
         ticker.cancel()
