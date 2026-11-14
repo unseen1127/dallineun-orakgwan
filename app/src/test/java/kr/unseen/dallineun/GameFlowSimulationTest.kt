@@ -40,7 +40,7 @@ class GameFlowSimulationTest {
         val states = mutableListOf<UiState>()
         runTest {
             val car = FakeCar(CarContext.State(driving = true, remainSec = 80 * 60, address = address, lat = lat, lng = lng))
-            val mc = MC(this, car) { states += it }
+            val mc = MC(this, car, { states += it })
             val demo = DemoVoice(FakeVoice(log)) { a -> log += "답변: $a" }
             demo.load(DemoScripts.forGame(type))
             mc.voice = demo; mc.demo = true
