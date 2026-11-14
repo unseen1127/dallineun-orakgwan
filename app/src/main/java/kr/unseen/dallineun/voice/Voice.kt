@@ -127,8 +127,10 @@ class PleosVoice private constructor(
 class AndroidVoice private constructor(
     private val context: Context,
     private val tts: AndroidTts,
+    /** 차량(Pleos)에서는 외부 음성 인식 서비스를 쓰지 않는다. 음성 인식은 SpeechToText SDK만 사용 */
+    private val allowStt: Boolean,
 ) : VoiceIO {
-    override val engineName = "Android TTS/STT (fallback)"
+    override val engineName = if (allowStt) "Android TTS/STT (fallback)" else "Android TTS (STT는 Pleos SDK 전용)"
     private var recognizer: SpeechRecognizer? = null
     private val rmsLog = ArrayList<Double>()
     override val clapDetected: Boolean get() = ClapDetector.isClap(rmsLog)
@@ -146,7 +148,7 @@ class AndroidVoice private constructor(
     }
 
     override suspend fun listen(timeoutMs: Long): String? {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) { delay(timeoutMs); return null }
+        if (!allowStt || !SpeechRecognizer.isRecognitionAvailable(context)) { delay(timeoutMs); return null }
         val d = CompletableDeferred<String?>()
         val rec = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also { recognizer = it }
         rec.setRecognitionListener(object : RecognitionListener {
@@ -177,13 +179,13 @@ class AndroidVoice private constructor(
     override fun release() { tts.shutdown(); recognizer?.destroy() }
 
     companion object {
-        suspend fun create(context: Context): AndroidVoice {
+        suspend fun create(context: Context, allowStt: Boolean = true): AndroidVoice {
             val d = CompletableDeferred<Int>()
             val tts = AndroidTts(context.applicationContext) { d.complete(it) }
             withTimeoutOrNull(3000) { d.await() }
             tts.language = Locale.KOREA
             tts.setSpeechRate(1.05f)
-            return AndroidVoice(context.applicationContext, tts)
+            return AndroidVoice(context.applicationContext, tts, allowStt)
         }
     }
 }
