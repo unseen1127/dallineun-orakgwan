@@ -174,9 +174,10 @@ class MainActivity : Activity() {
                 contentDescription = g.title
             }
             card.addView(text("0${i + 1}", 20f, accent, true, 1))
-            card.addView(text(g.title, 34f, textHi, true, 1), lp(top = 14))
+            card.addView(text(g.title, 30f, textHi, true, 2), lp(top = 14))
             card.addView(text(g.desc, 20f, textMid, false, 2), lp(top = 10))
-            val l = if (landscape) lp(w = 0, h = -1, weight = 1f, end = if (i < 2) 16 else 0) else lp(h = 0, weight = 1f, top = if (i > 0) 16 else 0)
+            val last = GameType.values().size - 1
+            val l = if (landscape) lp(w = 0, h = -1, weight = 1f, end = if (i < last) 16 else 0) else lp(h = 0, weight = 1f, top = if (i > 0) 16 else 0)
             cards.addView(card, l)
         }
         box.addView(cards, lp(h = 0, weight = 1f, top = 16))
@@ -205,7 +206,14 @@ class MainActivity : Activity() {
 
         // 핵심 정보: 지금 단어 / 초성 / 우승자
         main.addView(text(s.boardLabel, 20f, textMid, false, 1), lp(top = 22))
-        main.addView(text(s.board, if (s.board.length > 8) 56f else 80f, textHi, true, 1), lp(top = 6))
+        if (s.board.isNotBlank()) main.addView(text(s.board, if (s.board.length > 8) 56f else 80f, textHi, true, 1), lp(top = 6))
+        // 객관식 보기: 큰 글씨 3줄
+        s.options.forEachIndexed { i, o ->
+            val row = text("${i + 1}   $o", 36f, textHi, true, 1).apply {
+                background = round(surface2, 18f); setPadding(dp(24f), dp(14f), dp(24f), dp(14f))
+            }
+            main.addView(row, lp(top = if (i == 0) 12 else 10))
+        }
 
         // 차례 + 타이머
         val turn = row()
@@ -283,6 +291,7 @@ object DemoScripts {
     fun players(t: GameType) = when (t) {
         GameType.WORD_CHAIN -> listOf("아빠", "엄마", "지우", "민준")
         GameType.CHOSUNG -> listOf("아빠", "지우")
+        GameType.GAME_369 -> listOf("아빠", "엄마", "지우", "민준")
         GameType.REGION -> listOf("아빠", "엄마", "지우")
     }
 
@@ -298,9 +307,15 @@ object DemoScripts {
             "두 명", "아빠", "지우", "그대로",
             "김치찌개", "떡국", "떡볶이", "붕어빵", null, "호두과자",
         )
+        GameType.GAME_369 -> listOf(
+            "네 명이요", "아빠", "엄마", "지우", "민준", "그대로 할게요",
+            "이", "짝", "사", "오", "짝", "칠", "팔", "구",   // 아빠: 9에서 '짝'을 못 해서 아웃
+            "이", "삼",                                      // 민준: 3에서 숫자를 말해 아웃
+            "이", "짝", "사", "오", "육",                    // 지우: 6에서 아웃 -> 엄마 생존
+        )
         GameType.REGION -> listOf(
             "세 명", "아빠", "엄마", "지우", "섞어 줘",
-            "호두과자!", "민속촌?", "한라산",
+            "오!", "2번!", "엑스",                            // OX 정답, 객관식 정답, OX 오답
         )
     }
 }
