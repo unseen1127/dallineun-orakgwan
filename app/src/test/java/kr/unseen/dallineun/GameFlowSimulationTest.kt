@@ -71,7 +71,7 @@ class GameFlowSimulationTest {
     @Test fun familyRegion() {
         val (log, _) = run("FAMILY_REGION", DemoScripts.family(GameType.REGION), DemoScripts.players(GameType.REGION), "충청남도 천안시 동남구", 36.80, 127.15)
         assertTrue(log.any { it.contains("세 명이군요") }); assertTrue(log.any { it.contains("천안 근처") }); assertTrue(log.any { it.contains("한 분씩 이름") })
-        assertTrue(log.any { it.contains("오엑스 퀴즈") }); assertTrue(log.none { it.contains("OX") })
+        assertTrue(log.any { it.contains("오엑스 퀴즈") }); assertTrue(log.none { it.contains("OX") }); assertTrue(log.none { it.contains("한라산") })
         assertTrue(log.any { it.contains("우승은 엄마 님, 이 점") || it.contains("우승은 엄마 님, 2점") })
     }
 
