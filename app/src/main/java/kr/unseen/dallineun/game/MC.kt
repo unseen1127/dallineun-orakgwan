@@ -11,8 +11,8 @@ import kr.unseen.dallineun.voice.VoiceIO
 enum class GameType(val title: String, val desc: String) {
     WORD_CHAIN("끝말잇기", "MC가 순서·시간·판정, 중간에 새 규칙"),
     CHOSUNG("초성 퀴즈", "초성과 힌트를 듣고 정답 맞히기"),
-    GAME_369("369 게임", "숫자에 3·6·9가 나오면 숫자 대신 박수!"),
     REGION("지나는 동네 퀴즈", "지나는 지역 문제를 객관식·OX로"),
+    SOLO("혼자 드라이브", "혼자 운전할 때, MC와 1:1 끝말잇기·퀴즈 대결"),
 }
 
 data class Player(val name: String, val isDriver: Boolean, var score: Int = 0)
@@ -63,11 +63,12 @@ class MC(
         job = scope.launch {
             car.requestAudioFocus()
             set { UiState(screen = UiState.Screen.GAME, game = game) }
-            val players = setupPlayers(game, demoPlayers)
+            val players = if (game == GameType.SOLO) mutableListOf(Player(demoPlayers?.firstOrNull() ?: "드라이버", isDriver = true))
+                          else setupPlayers(game, demoPlayers)
             when (game) {
                 GameType.WORD_CHAIN -> wordChain(players)
                 GameType.CHOSUNG -> chosung(players)
-                GameType.GAME_369 -> game369(players)
+                GameType.SOLO -> { solo(players[0]); car.abandonAudioFocus(); return@launch }
                 GameType.REGION -> region(players)
             }
             awards(players)
@@ -254,47 +255,63 @@ class MC(
         }
     }
 
-    /* ---------------- 369 게임 ---------------- */
+    /* ---------------- 혼자 드라이브: MC가 상대 ---------------- */
 
-    private suspend fun game369(players: MutableList<Player>) {
-        say("369 게임! 3, 6, 9가 들어가면 숫자 대신 박수! 틀리면 아웃!")
-        val alive = players.toMutableList()
-        var n = 1
-        var idx = 0
-        set { it.copy(board = "1", boardLabel = "다음 숫자", rule = "기본 속도", round = "생존 ${alive.size}명") }
-        say("${alive[0].name} 님부터, 일!")
-        n = 2; idx = 1
-        while (alive.size > 1) {
-            val p = alive[idx % alive.size]
-            val k = Hangul.claps(n)
-            set { it.copy(current = players.indexOf(p), board = if (k > 0) "짝".repeat(k) + "?" else "?", boardLabel = "다음 차례", rule = if (n > 20) "스피드 업" else "기본 속도") }
-            val heard = hear(p, turnSeconds(p, if (n > 20) 3 else 4))
+    private suspend fun solo(me: Player) {
+        val mcSide = Player("MC", isDriver = false)
+        val both = listOf(me, mcSide)
+        set { it.copy(players = both, current = -1, rule = "1:1 대결", board = "", boardLabel = "", round = "") }
+        say("혼자 드라이브 모드! 오늘은 제가 상대예요. 먼저 끝말잇기 한판!")
+        // 1) MC와 1:1 끝말잇기
+        val used = mutableSetOf<String>()
+        var word = if (demo) "자동차" else Content.mcWords.random()
+        used += word
+        set { it.copy(board = word, boardLabel = "MC가 낸 단어", round = "끝말잇기") }
+        say("제가 먼저 할게요. $word!")
+        var driverWin = false
+        var turns = 0
+        while (true) {
+            val starts = Hangul.allowedStarts(word.last())
+            val startTxt = starts.joinToString(" 또는 ") { "'$it'" } + Hangul.ro(starts.last())
+            set { it.copy(current = 0) }
+            say("${me.name} 님, $startTxt 시작!")
+            val heard = hear(me, turnSeconds(me, 8))
             if (isStop(heard)) { say("게임을 마칠게요."); return }
-            val ok = when {
-                heard == null -> k > 0 && voice.clapDetected   // 말 없이 실제 박수만 친 경우
-                k > 0 -> Hangul.isClap(heard) && Hangul.parseNumber(heard.replace("짝", "")) == null
-                else -> !Hangul.isClap(heard) && Hangul.parseNumber(heard) == n
+            val w = heard?.let { Hangul.extractWord(it) }.orEmpty()
+            val ok = w.length >= 2 && w.first() in starts && w !in used
+            if (!ok) { say(if (w.isEmpty()) "시간 초과! 이번 판은 제가 이겼네요." else "아쉬워요! 이번 판은 제가 이겼네요."); break }
+            me.score += 1; used += w; word = w; turns++
+            set { it.copy(board = w, boardLabel = "${me.name} 님 단어", players = both) }
+            // MC 차례: 단어장에서 이어지는 단어를 고른다
+            set { it.copy(current = 1) }
+            val next = Content.mcWords.filter { it.first() in Hangul.allowedStarts(w.last()) && it !in used }
+                .let { if (demo) it.firstOrNull() else it.randomOrNull() }
+            if (next == null) {
+                driverWin = true
+                say("음... '${w.last()}'${Hangul.ro(w.last())} 시작하는 단어가 생각이 안 나요. 제가 졌어요! ${me.name} 님 승리!")
+                break
             }
-            if (ok) {
-                p.score += 1
-                set { it.copy(board = if (k > 0) "짝".repeat(k) else "$n", boardLabel = "통과", players = players.toList()) }
-                n++; idx++
-                if (n == 21) say("스피드 업! 지금부터 3초!")
-            } else {
-                val right = if (k > 0) "'" + "짝".repeat(k) + "'" else "'$n'"
-                val pos = idx % alive.size
-                alive.remove(p)
-                set { it.copy(board = "아웃", boardLabel = "${p.name} 님", round = "생존 ${alive.size}명", players = players.toList()) }
-                say(if (k > 0) "땡! ${Hangul.sino(n)}에서는 박수! ${p.name} 님 아웃!" else "땡! ${Hangul.sino(n)}에서는 숫자 ${Hangul.sino(n)}! ${p.name} 님 아웃!")
-                if (alive.size <= 1) break
-                if (finalRoundNeeded()) { say("곧 도착이라 여기까지!"); break }
-                n = 1
-                idx = pos % alive.size
-                say("다시 1부터! ${alive[idx].name} 님, 일!")
-                n = 2; idx++
-            }
+            used += next; word = next; mcSide.score += 1
+            set { it.copy(board = next, boardLabel = "MC가 낸 단어", players = both) }
+            say("$next!")
+            if (finalRoundNeeded()) { say("곧 도착이라 여기까지!"); return }
         }
-        alive.firstOrNull()?.let { it.score += 5; say("${it.name} 님 생존! 보너스 5점!") }
+        // 2) 지나는 동네 퀴즈 연속 도전
+        car.refreshLocation(); delay(600)
+        val st = car.state
+        val reg = Content.findRegion(st.address, st.lat, st.lng)
+        val qs = ((reg?.qs ?: emptyList()) + (if (demo) Content.nationwide else Content.nationwide.shuffled())).take(2)
+        set { it.copy(current = 0, round = "퀴즈 연속 도전", board = "", boardLabel = "") }
+        say("이번엔 ${reg?.let { "지금 지나는 ${it.name}" } ?: "전국"} 퀴즈, 연속 정답 도전!")
+        var streak = 0
+        for (q in qs) {
+            val ok = askQuiz(me, q, reg?.name)
+            if (!ok) break
+            streak++
+            say("$streak 연속!")
+        }
+        set { it.copy(screen = UiState.Screen.RESULT, current = -1, board = if (driverWin) "승리" else "${streak}연속", boardLabel = "오늘의 기록", options = emptyList(), round = "") }
+        say("오늘 기록, 끝말잇기 ${if (driverWin) "승리" else "${turns}번 이어가기"}에 퀴즈 ${streak}연속! 졸리면 다음 휴게소에서 꼭 쉬어 가세요.")
     }
 
     /* ---------------- 지나는 동네 퀴즈 (객관식 · OX) ---------------- */
@@ -314,30 +331,36 @@ class MC(
         for ((i, q) in list.withIndex()) {
             val p = players[i % players.size]
             val head = "${i + 1} / ${list.size} 문제"
-            when (q) {
-                is Content.Quiz.OX -> {
-                    set { it.copy(current = players.indexOf(p), board = "O / X", boardLabel = "${reg?.name ?: "전국"} · OX 퀴즈", rule = head, round = "", options = emptyList()) }
-                    say("${p.name} 님, OX 퀴즈! ${q.q} 맞으면 O, 틀리면 X!")
-                    val a = hear(p, turnSeconds(p, 6))
-                    if (isStop(a)) { say("게임을 마칠게요."); return }
-                    val ok = a?.let { Hangul.parseOX(it) } == q.answer
-                    if (ok) p.score += 1
-                    set { it.copy(board = if (q.answer) "O" else "X", players = players.toList()) }
-                    say((if (ok) "딩동댕! " else "땡! ") + q.explain)
-                }
-                is Content.Quiz.Choice -> {
-                    val order = if (demo) q.options.indices.toList().let { listOf(it[1], it[0], it[2]) } else q.options.indices.shuffled()
-                    val opts = order.map { q.options[it] }
-                    val answerIdx = order.indexOf(q.answer)
-                    set { it.copy(current = players.indexOf(p), board = "", boardLabel = "${reg?.name ?: "전국"} · 객관식", rule = head, round = "", options = opts) }
-                    say("${p.name} 님, 객관식! ${q.q} 1번 ${opts[0]}, 2번 ${opts[1]}, 3번 ${opts[2]}!")
-                    val a = hear(p, turnSeconds(p, 7))
-                    if (isStop(a)) { say("게임을 마칠게요."); return }
-                    val ok = a?.let { Hangul.parseChoice(it, opts) } == answerIdx
-                    if (ok) p.score += 2
-                    set { it.copy(players = players.toList(), board = "${answerIdx + 1}번 ${opts[answerIdx]}", options = emptyList()) }
-                    say((if (ok) "딩동댕! " else "땡! ") + q.explain)
-                }
+            askQuiz(p, q, reg?.name, head)
+        }
+    }
+
+    /** 객관식·OX 한 문제 진행. 맞히면 true */
+    private suspend fun askQuiz(p: Player, q: Content.Quiz, regionName: String?, head: String = ""): Boolean {
+        val players = ui.players
+        when (q) {
+            is Content.Quiz.OX -> {
+                set { it.copy(current = players.indexOf(p), board = "O / X", boardLabel = "${regionName ?: "전국"} · OX 퀴즈", rule = head, options = emptyList()) }
+                say("${p.name} 님, OX 퀴즈! ${q.q} 맞으면 O, 틀리면 X!")
+                val a = hear(p, turnSeconds(p, 6))
+                val ok = a?.let { Hangul.parseOX(it) } == q.answer
+                if (ok) p.score += 1
+                set { it.copy(board = if (q.answer) "O" else "X", players = ui.players.toList()) }
+                say((if (ok) "딩동댕! " else "땡! ") + q.explain)
+                return ok
+            }
+            is Content.Quiz.Choice -> {
+                val order = if (demo) q.options.indices.toList().let { listOf(it[1], it[0], it[2]) } else q.options.indices.shuffled()
+                val opts = order.map { q.options[it] }
+                val answerIdx = order.indexOf(q.answer)
+                set { it.copy(current = players.indexOf(p), board = "", boardLabel = "${regionName ?: "전국"} · 객관식", rule = head, options = opts) }
+                say("${p.name} 님, 객관식! ${q.q} 1번 ${opts[0]}, 2번 ${opts[1]}, 3번 ${opts[2]}!")
+                val a = hear(p, turnSeconds(p, 7))
+                val ok = a?.let { Hangul.parseChoice(it, opts) } == answerIdx
+                if (ok) p.score += 2
+                set { it.copy(players = ui.players.toList(), board = "${answerIdx + 1}번 ${opts[answerIdx]}", options = emptyList()) }
+                say((if (ok) "딩동댕! " else "땡! ") + q.explain)
+                return ok
             }
         }
     }
