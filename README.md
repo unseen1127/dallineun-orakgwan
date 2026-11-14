@@ -31,7 +31,7 @@
 | FusedLocation | 1.1.3 | 차량 좌표로 지역 판정 |
 | AAOS CarUxRestrictions | - | 주행 규제 상태 확인, 주행 중 화면 정보 축소 |
 
-Pleos 음성 서비스가 없는 기기(일반 AAOS 에뮬레이터, 휴대폰)에서는 Android 기본 TTS/SpeechRecognizer로 자동 대체됩니다.
+음성 인식은 Pleos SpeechToText SDK만 사용합니다. 차량(AAOS)에서는 외부 음성 인식 서비스로 대체하지 않으며, Pleos 음성 서비스가 없는 일반 휴대폰에서만 Android 기본 TTS/SpeechRecognizer로 대체 실행됩니다.
 
 ## 실행 방법
 
@@ -43,6 +43,7 @@ Pleos 음성 서비스가 없는 기기(일반 AAOS 에뮬레이터, 휴대폰)�
    ```
 3. 앱 목록에서 "달리는 오락관"을 실행하고 마이크 권한을 허용합니다.
 4. 게임 카드를 누르면 MC가 음성으로 진행합니다.
+5. (자동 시연) `adb shell am start -n kr.unseen.dallineun/.MainActivity --ez demo true --es game WORD_CHAIN` (REGION, SOLO, CHOSUNG도 가능)
 
 ### 시연 모드 (마이크 없이 확인)
 홈 화면 오른쪽 아래 "시연 모드"를 켜고 게임을 고르면, 탑승자 답변을 내장 대본으로 자동 입력합니다.
@@ -62,8 +63,9 @@ chmod +x gradlew   # 웹 업로드로 실행 권한이 빠졌을 수 있음
 
 ## 테스트 환경 및 화면 규격
 
-- 개발에 사용한 에뮬레이터: Pleos Connect Emulator v2.1.0 (API 34) 기준으로 개발
-- 실기 에뮬레이터 구동 검증: [확인 필요: 제출 전 에뮬레이터 실행 결과 기재]
+- 개발에 사용한 에뮬레이터: Pleos Connect Emulator v2.1.0 (system image: Pleos Connect v2.1.0 APIs arm64, Android API 34)
+- 화면 규격: 2560×1440, 160dpi (Pleos Connect v2.1.0 AVD 기본 규격), landscape
+- 게임 흐름 검증: `./gradlew testReleaseUnitTest` 의 GameFlowSimulationTest가 게임 4종을 시연 대본으로 끝까지 실행
 - 화면: Pleos Connect Display Layout 가이드에 따라 landscape(2개 window 확장)와 portrait(1개 window) 레이아웃을 모두 지원
 - 디자인: Pleos Connect UI Design Guide 기준 다크 테마, Asta Sans 서체, 대비 4.5:1 이상, 76dp 이상 큰 버튼, 주행 중 애니메이션 없음
 
