@@ -23,7 +23,15 @@ private const val TAG = "DallineunCar"
  * - FusedLocation: 차량 위치(주소가 없을 때 좌표로 지역 판정)
  * - 오디오 포커스: 길 안내 음성이 나오면 게임 일시정지
  */
-class CarContext(private val context: Context) {
+/** MC가 쓰는 차량 맥락. 테스트에서는 가짜 구현으로 대체한다 */
+interface CarEnv {
+    val state: CarContext.State
+    fun requestAudioFocus(): Boolean
+    fun abandonAudioFocus()
+    fun refreshLocation()
+}
+
+class CarContext(private val context: Context) : CarEnv {
 
     data class State(
         val driving: Boolean = false,
@@ -36,7 +44,7 @@ class CarContext(private val context: Context) {
         val sources: Set<String> = emptySet(),
     )
 
-    @Volatile var state = State(); private set
+    @Volatile override var state = State(); private set
     var onChange: ((State) -> Unit)? = null
 
     private var car: Any? = null
@@ -104,7 +112,7 @@ class CarContext(private val context: Context) {
     }
 
     /** 지역 퀴즈 직전에 최신 주소를 다시 요청 */
-    fun refreshLocation() {
+    override fun refreshLocation() {
         runCatching { navi?.getCurrentLocationInfo() }
         runCatching { fused?.getLastKnownLocation(fusedListener) }
     }
@@ -132,7 +140,7 @@ class CarContext(private val context: Context) {
     }
 
     /* ---------- 오디오 포커스: 길 안내 등 중요한 음성이 오면 잠시 멈춤 ---------- */
-    fun requestAudioFocus(): Boolean {
+    override fun requestAudioFocus(): Boolean {
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -153,7 +161,7 @@ class CarContext(private val context: Context) {
         return audio.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
     }
 
-    fun abandonAudioFocus() { focusRequest?.let { audio.abandonAudioFocusRequest(it) } }
+    override fun abandonAudioFocus() { focusRequest?.let { audio.abandonAudioFocusRequest(it) } }
 
     /* ---------- 데모 시뮬레이션 ---------- */
     fun simulate(driving: Boolean, remainSec: Int?, destination: String?, address: String?, lat: Double?, lng: Double?) {
